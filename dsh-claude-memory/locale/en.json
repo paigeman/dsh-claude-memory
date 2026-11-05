@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Claude Code Memory (read-only)",
+    "description": "Recalls Claude Code and Claude Code Desktop project Auto Memory — MEMORY.md plus topic files — on demand, with strict read-only access."
+  }
+}

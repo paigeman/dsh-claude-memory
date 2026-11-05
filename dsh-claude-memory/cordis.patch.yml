@@ -1,0 +1,14 @@
+# Read-only Claude Code Auto Memory reader for DeepSeek Harness.
+# Installed as a profile bundle; the row is inserted into the Host composition.
+- insert:
+    - id: claude-memory
+      name: '@local/dsh-claude-memory'
+      config:
+        maxBatchChars: 48000
+        maxFileBytes: 524288
+        maxRecallFiles: 3
+        maxScanFiles: 500
+        injectIndexInSubagents: false
+        respectAutoMemoryDisabled: true
+        includeManifestInIndex: false
+        debug: false

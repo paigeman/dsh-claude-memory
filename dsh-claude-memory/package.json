@@ -1,0 +1,40 @@
+{
+  "name": "@local/dsh-claude-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only recall of Claude Code / Claude Code Desktop project Auto Memory inside DeepSeek Harness",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "claude-code",
+    "auto-memory",
+    "read-only"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "icon": "./icon.svg",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
