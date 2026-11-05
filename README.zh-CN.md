@@ -23,41 +23,57 @@
 
 插件包名为 `dsh-claude-memory-reader`。它只有 Host 端代码，没有前端构建步骤，运行时不需要额外安装第三方依赖。开发检查所用的 npm 工具与日常安装分开。
 
-## 安装到 DSH Desktop
+## 从 npm 安装
 
-### 找到插件包目录
+### DSH Desktop
 
-尚未下载源码时，先克隆公开仓库。仓库根目录就是插件包目录，已有该目录时直接进入即可。
+1. 打开 **插件** 页面，选择 **添加插件**，安装来源选用官方 npm registry。
+2. 输入下面的包名并安装。
 
-```bash
-git clone https://github.com/paigeman/dsh-claude-memory.git ~/repo/dsh-claude-memory
-cd ~/repo/dsh-claude-memory
-pwd
-```
+   ```text
+   dsh-claude-memory-reader
+   ```
 
-这个目录应当同时包含 `package.json`、`index.js` 和 `cordis.patch.yml`。复制 `pwd` 输出的绝对路径。
-
-### 在界面中安装
-
-1. 打开 DSH 的插件管理界面，进入本地插件安装入口。
-2. 填入刚才复制的插件包绝对路径，完成安装。
-3. 在插件列表中找到 **Claude Code 记忆（只读）**，检查版本为 0.1.3，组件状态为运行中。
-4. 在目标项目目录中新开一个对话，继续下面的首次检查。
+3. 安装完成后选择 **立即启用**，在插件列表中确认 **Claude Code 记忆（只读）** 的组件状态为运行中。
+4. 在目标项目目录中新开一个对话，按[第一次使用](#第一次使用)检查 Memory 是否加载。
 
 随包的 `cordis.patch.yml` 会把 `claude-memory` 组件加入当前 profile。安装会写入 DSH 的插件配置，插件运行时对 Claude Code Memory 保持只读。
 
-本地目录安装会引用这份源码。保留该目录；后续改代码后，重新加载插件或在任务结束后正常重启 DSH。需要换安装位置时，通过插件管理器更新来源，并检查最终链接指向。
+### DSH CLI
 
-### 使用 DSH CLI 安装
+如果当前环境已提供 `dsh` 命令，可以直接按包名安装到所用 profile。下面以 `tui` 为例。
 
-如果你使用已提供 `dsh` 命令的 CLI 环境，可以把插件加入相应 profile。下面以 `tui` 为例，在插件包目录运行。
+```bash
+dsh plugin --profile tui add dsh-claude-memory-reader
+dsh --profile tui --dump-config
+```
+
+在输出的组件配置中检查 `id: claude-memory` 和 `name: 'dsh-claude-memory-reader'`。需要指定版本时，可以使用 `dsh-claude-memory-reader@0.1.3` 这样的版本号写法。
+
+Desktop 的 `desktop` profile 由应用保留管理，使用上面的插件管理界面安装；普通 CLI 发行版可能拒绝操作它。
+
+## 从本地源码安装
+
+开发插件或试用尚未发布的改动时，可以使用本地源码。尚未下载源码时，先克隆公开仓库。仓库根目录就是插件包目录。
+
+```bash
+git clone https://github.com/paigeman/dsh-claude-memory.git
+cd dsh-claude-memory
+pwd
+```
+
+这个目录应当同时包含 `package.json`、`index.js` 和 `cordis.patch.yml`。在 DSH Desktop 中选择本地插件安装，填入该目录的绝对路径。启用后按[第一次使用](#第一次使用)检查。
+
+使用 DSH CLI 时，在插件包目录运行。
 
 ```bash
 dsh plugin --profile tui add "link:$PWD"
 dsh --profile tui --dump-config
 ```
 
-在输出的组件配置中检查 `id: claude-memory` 和 `name: 'dsh-claude-memory-reader'`。Desktop 的 `desktop` profile 由应用保留管理，使用上面的 Desktop 安装流程；普通 CLI 发行版可能拒绝操作它。
+本地安装会引用这份源码，需要保留该目录。后续改代码后，重新加载插件或在任务结束后正常重启 DSH。需要换安装位置时，通过插件管理器更新来源，并检查最终链接指向。
+
+已有本地安装、准备改用 npm 时，先记下所用插件设置，通过同一 profile 的插件管理器卸载本地 bundle，再安装 npm 包。
 
 ## 第一次使用
 

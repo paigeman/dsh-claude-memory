@@ -21,41 +21,57 @@ The plugin resolves the active session directory, canonical Git root, and worktr
 
 The package is `dsh-claude-memory-reader`. It runs on the Host, has no frontend build, and needs no extra third-party runtime dependencies. Installing development tools is optional for ordinary local plugin installation.
 
-## Install in DSH Desktop
+## Install from npm
 
-### Locate the package
+### DSH Desktop
 
-Clone the public repository if you do not already have it. The repository root is the plugin package directory.
+1. Open **Plugins**, choose **Add plugin**, and select the official npm registry as the source.
+2. Enter the package name below and install it.
 
-```bash
-git clone https://github.com/paigeman/dsh-claude-memory.git ~/repo/dsh-claude-memory
-cd ~/repo/dsh-claude-memory
-pwd
-```
+   ```text
+   dsh-claude-memory-reader
+   ```
 
-Confirm that the directory contains `package.json`, `index.js`, and `cordis.patch.yml`.
-
-### Install through the app
-
-1. Open DSH's plugin manager and choose local plugin installation.
-2. Enter the absolute package directory from the previous step and install it.
-3. Find **Claude Code Memory (read-only)** in the plugin list. Confirm version 0.1.3 and a running component.
-4. Open a new conversation in the project whose memory you want to use.
+3. Choose **Enable now**, then confirm **Claude Code Memory (read-only)** appears in the plugin list with a running component.
+4. Open a new conversation in the project whose memory you want to use, then follow [First check](#first-check).
 
 The bundle patch adds the `claude-memory` component to that profile. Installation updates DSH profile metadata; the plugin's runtime keeps Claude Code Memory read-only.
 
-Keep the source directory after installing a local link. After editing code, reload the plugin or restart DSH once active tasks finish. If the directory changes, update the installed source and verify its resolved link.
+### DSH CLI
 
-### Install with the CLI
+In an environment that provides the `dsh` command, install the package into the profile you use. This example targets `tui`.
 
-For a CLI environment that provides `dsh`, install into the profile you use. This example targets `tui` and runs from the package directory.
+```bash
+dsh plugin --profile tui add dsh-claude-memory-reader
+dsh --profile tui --dump-config
+```
+
+Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. To choose a specific release, use a versioned spec such as `dsh-claude-memory-reader@0.1.3`.
+
+Desktop reserves its `desktop` profile for application-managed installation. A standalone CLI distribution may reject access to that profile; use the Desktop plugin manager for it.
+
+## Install from local source
+
+Use a local installation when developing the plugin or trying an unpublished change. Clone the repository if you do not already have a checkout. Its root is the plugin package directory.
+
+```bash
+git clone https://github.com/paigeman/dsh-claude-memory.git
+cd dsh-claude-memory
+pwd
+```
+
+Confirm that the directory contains `package.json`, `index.js`, and `cordis.patch.yml`. In DSH Desktop, choose local plugin installation and enter this directory's absolute path. Enable the installed bundle and run the same [First check](#first-check).
+
+For DSH CLI, run the following commands from the package directory.
 
 ```bash
 dsh plugin --profile tui add "link:$PWD"
 dsh --profile tui --dump-config
 ```
 
-Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. Desktop reserves its `desktop` profile for application-managed installation. A standalone CLI distribution may reject access to that profile; use the Desktop workflow above.
+Keep the source directory after installing a local link. After editing code, reload the plugin or restart DSH once active tasks finish. If the directory changes, update the installed source and verify its resolved link.
+
+To switch an existing local installation to npm, record any plugin settings and uninstall the local bundle through the same profile's plugin manager before installing the registry package.
 
 ## First check
 
