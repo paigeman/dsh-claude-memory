@@ -212,7 +212,7 @@ This version reads existing memory. Use Claude Code or edit its files yourself t
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development checks and release maintenance.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, checks, and pull request guidance.
 
 ## Compatibility and sources
 

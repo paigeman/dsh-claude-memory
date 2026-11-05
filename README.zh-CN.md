@@ -214,7 +214,7 @@ dsh --profile tui --dump-config
 
 ## 参与开发
 
-开发检查和版本发布步骤见 [CONTRIBUTING.md](CONTRIBUTING.md)。日常安装使用无需执行这些操作。
+开发环境、检查命令和提交 PR 的说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 兼容范围与来源
 
