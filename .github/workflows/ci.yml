@@ -66,6 +66,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Run real DSH codec and request tests without skipped checks
         run: npm run test:native
+      - name: Smoke-test the packed plugin on this platform
+        run: npm run verify:package
 
   package:
     needs: [quality, native]

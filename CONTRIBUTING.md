@@ -27,7 +27,7 @@ Tests cover project isolation, worktrees, path overrides, symlink containment, f
 
 ## CI and releases
 
-The [CI workflow](https://github.com/paigeman/dsh-claude-memory/actions/workflows/ci.yml) checks formatting, JavaScript, Markdown, and workflow syntax. Native tests run on Linux, macOS, and Windows. A successful run retains the tested `.tgz`, `SHA256SUMS`, and `release.json` as the `package-<run-id>` artifact for seven days. Source files remain in Git; the package excludes development tools, tests, workflow files, and local data.
+The [CI workflow](https://github.com/paigeman/dsh-claude-memory/actions/workflows/ci.yml) checks formatting, JavaScript, Markdown, and workflow syntax. Native tests and packed-plugin smoke checks run on Linux, macOS, and Windows. A successful run retains the tested `.tgz`, `SHA256SUMS`, and `release.json` as the `package-<run-id>` artifact for seven days. Source files remain in Git; the package excludes development tools, tests, workflow files, and local data.
 
 The [Release workflow](https://github.com/paigeman/dsh-claude-memory/actions/workflows/release.yml) reuses those checks. Manual runs default to a dry run and can validate `main` without a version tag or registry writes.
 

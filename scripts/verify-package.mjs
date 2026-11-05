@@ -26,12 +26,17 @@ mkdirSync(output, { recursive: true });
 const outputRelative = relative(realpathSync(tempRoot), realpathSync(output));
 if (outputRelative.startsWith(`..${sep}`) || outputRelative === "..")
   throw new Error("Package output must stay inside TEMP_ROOT.");
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const npm = process.env.npm_execpath;
+assert.ok(npm, "Run this check with npm run verify:package.");
 const packed = JSON.parse(
-  execFileSync(npm, ["pack", "--json", "--ignore-scripts", "--pack-destination", output], {
-    cwd: root,
-    encoding: "utf8",
-  }),
+  execFileSync(
+    process.execPath,
+    [npm, "pack", "--json", "--ignore-scripts", "--pack-destination", output],
+    {
+      cwd: root,
+      encoding: "utf8",
+    },
+  ),
 )[0];
 assert.equal(basename(packed.filename), packed.filename);
 const files = packed.files.map((file) => file.path);
