@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { realpathSync, symlinkSync } from "node:fs";
-import { join, normalize } from "node:path";
+import { readFileSync, realpathSync, symlinkSync } from "node:fs";
+import { join, normalize, resolve } from "node:path";
 import { test } from "node:test";
 import {
   findGitRoot,
@@ -126,6 +126,29 @@ test("git worktree maps to the main repository memory", () => {
   const canonical = resolveCanonicalGitRoot(findGitRoot(worktree));
   assert.equal(canonical.root, realpathSync(main));
   cleanup(temp);
+});
+
+test("worktree backlink accepts native path spelling and rejects a different file", (t) => {
+  const temp = makeTemp();
+  t.after(() => cleanup(temp));
+  const main = makeGitRepo(join(temp, "main"));
+  const worktree = makeWorktree(main, join(temp, "worktree"));
+  const gitPath = join(worktree, ".git");
+  const gitdir = resolve(
+    worktree,
+    readFileSync(gitPath, "utf8").trim().slice("gitdir:".length).trim(),
+  );
+  const backlink = join(gitdir, "gitdir");
+  writeFile(backlink, `${realpathSync.native(gitPath)}\n`);
+  const accepted = resolveCanonicalGitRoot(worktree);
+  assert.equal(accepted.canonicalized, true, JSON.stringify(accepted));
+  assert.equal(accepted.root, realpathSync(main));
+
+  writeFile(backlink, `${join(main, ".git", "config")}\n`);
+  const rejected = resolveCanonicalGitRoot(worktree);
+  assert.equal(rejected.canonicalized, false);
+  assert.equal(rejected.root, worktree);
+  assert.match(rejected.warning, /backlink mismatch/);
 });
 
 test("symlinked cwd resolves to the real repository and same memory", () => {
