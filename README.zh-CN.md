@@ -6,7 +6,7 @@
 
 插件运行时只读。它先提供 `MEMORY.md` 索引，再让模型按任务调用 `claude_code_memory` 读取相关主题。你也可以直接说“请加载 memory”，要求加载当前项目的全部有效记忆。
 
-当前版本为 0.1.1，验证环境为 macOS 上的 DSH Desktop 0.2.1-rc.5。安装、消息格式和离线请求调用链已经验证，真实模型对话的端到端验收仍待完成。Windows、Linux 和其他 DSH 版本需要另行验证。
+当前版本为 0.1.2，验证环境为 macOS 上的 DSH Desktop 0.2.1-rc.5。安装、消息格式和离线请求调用链已经验证，真实模型对话的端到端验收仍待完成。Windows、Linux 和其他 DSH 版本需要另行验证。
 
 ## 安装前准备
 
@@ -27,20 +27,22 @@
 
 ### 找到插件包目录
 
-仓库中的内层 `dsh-claude-memory/` 才是插件包。以仓库位于 `~/repo/dsh-claude-memory` 为例，先运行下面两条命令。
+仓库根目录就是插件包目录。以仓库位于 `~/repo/dsh-claude-memory` 为例，先运行下面两条命令。
 
 ```bash
-cd ~/repo/dsh-claude-memory/dsh-claude-memory
+cd ~/repo/dsh-claude-memory
 pwd
 ```
 
 这个目录应当同时包含 `package.json`、`index.js` 和 `cordis.patch.yml`。复制 `pwd` 输出的绝对路径。
 
+项目只保留两份说明文档，英文为 `README.md`，中文为 `README.zh-CN.md`。源码、测试与开发配置都直接放在仓库根目录中。
+
 ### 在界面中安装
 
 1. 打开 DSH 的插件管理界面，进入本地插件安装入口。
 2. 填入刚才复制的插件包绝对路径，完成安装。
-3. 在插件列表中找到 **Claude Code 记忆（只读）**，检查版本为 0.1.1，组件状态为运行中。
+3. 在插件列表中找到 **Claude Code 记忆（只读）**，检查版本为 0.1.2，组件状态为运行中。
 4. 在目标项目目录中新开一个对话，继续下面的首次检查。
 
 随包的 `cordis.patch.yml` 会把 `claude-memory` 组件加入当前 profile。安装会写入 DSH 的插件配置，插件运行时对 Claude Code Memory 保持只读。
@@ -93,6 +95,14 @@ dsh --profile tui --dump-config
 ### 全量加载与继续加载
 
 “请加载 memory”“加载当前项目的全部记忆”和“load all memories”会触发全量加载。插件在主会话的模型请求前处理这些明确请求，内容按预算分批。
+
+加载指令也可以和其他任务放在同一条消息中。后续任务提到的文件名不会限制 Memory 的读取范围。
+
+```text
+请加载 memory，然后评审 design.md。
+```
+
+明确列出包含内容同样有效，例如“请加载当前项目的全部 memory，包括 MEMORY.md 和所有主题文件”。只要求读取某个 Memory 文件的消息仍走按需召回。
 
 若回执返回 `Complete: NO` 和下一批 `cursor`，让模型使用回执中实际给出的数值继续调用工具。
 
@@ -195,7 +205,7 @@ dsh --profile tui --dump-config
 
 ### 会话仍报 V4 消息格式错误
 
-0.1.1 使用当前 V4 编码器接受的生产者来源，不再产生旧版 `kind: "plugin"` 包装。此前失败的旧会话可能仍留着内存写入队列。等待活动任务结束，正常退出并重新打开 DSH，再恢复会话。保留原会话文件。
+插件使用当前 V4 编码器接受的生产者来源，不再产生旧版 `kind: "plugin"` 包装。此前失败的旧会话可能仍留着内存写入队列。等待活动任务结束，正常退出并重新打开 DSH，再恢复会话。保留原会话文件。
 
 `DeepSeek Messages stream ended before message_stop` 是另一项流式传输错误。本插件的修复与离线测试没有确认或解决它的所有成因。
 
@@ -219,7 +229,7 @@ npm test
 普通 `npm test` 使用 Node 内置测试运行器，不需要模型密钥。未指定 DSH 原生模块时，安装包集成测试会明确跳过。macOS 上可以运行完整的原生套件，调用已安装 DSH 的真实编码器与请求封装，模型适配器保持离线。
 
 ```bash
-DSH_HOME="$PWD/../.agent-tmp/native-dsh-home" \
+DSH_HOME="$PWD/.agent-tmp/native-dsh-home" \
 DSH_SESSION_FORMAT_MODULE='/Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js' \
 ELECTRON_RUN_AS_NODE=1 \
 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test test/*.test.js
@@ -231,6 +241,6 @@ ELECTRON_RUN_AS_NODE=1 \
 
 路径处理参考本机可读的 Claude Code 2.1.x 逆向重建源码，并用本仓库测试验证；这不等于所有官方发行版都已验证。索引读取上限为 200 行或 25000 个 JavaScript 字符，字符计量与官方文档所述的 25KB 并不完全相同。嵌套 `.md` 文件也会纳入本插件的显式全量召回。
 
-Claude Code 自身的索引启动加载、主题按需读取机制可见 [Auto Memory 官方文档](https://code.claude.com/docs/en/memory)。本插件不会额外调用模型筛选记忆，也不接管 Claude Code 的写入功能。实现修复和边界取舍记录在[评审文档](REVIEW-2026-11-05.md)。
+Claude Code 自身的索引启动加载、主题按需读取机制可见 [Auto Memory 官方文档](https://code.claude.com/docs/en/memory)。本插件不会额外调用模型筛选记忆，也不接管 Claude Code 的写入功能。
 
 本项目采用 MIT 许可。Claude Code 属于 Anthropic，本插件是独立项目。

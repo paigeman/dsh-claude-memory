@@ -65,6 +65,14 @@ test("detectFullRecall recognizes documented triggers and rejects negatives/ques
     "好的，请加载 memory",
     "Can you help me load memory?",
     "ok please load memory",
+    "请加载 memory，然后评审 design.md",
+    "请加载 memory 并评审 design.md",
+    "请加载 memory，再检查 README.md",
+    "Please load memory, then review design.md",
+    "Load memory and review README.md",
+    "Please load memory, then review exception-handling.md",
+    "请加载当前项目的全部 memory，包括 MEMORY.md 和所有主题文件",
+    "Load all memories, including MEMORY.md and topic files",
   ]) {
     assert.equal(detectFullRecall(text), true, text);
   }
@@ -80,6 +88,14 @@ test("detectFullRecall recognizes documented triggers and rejects negatives/ques
     "读取 memory.js 的源码",
     "read the memory documentation",
     "load only matching memory",
+    "请加载 memory 中的 feedback_testing.md",
+    "请读取全部 MEMORY.md",
+    "请读取 design.md，然后说明 memory 的用法",
+    "Read memory from MEMORY.md",
+    "请加载 memory，然后不要读取所有记忆",
+    "Load memory, then don't read all memories",
+    "请加载 memory，然后排除 user.md",
+    "Load memory except private.md",
     "hello world",
     "```\nload memory\n```",
     "避免子会话读取父仓库的 Memory",
@@ -88,6 +104,33 @@ test("detectFullRecall recognizes documented triggers and rejects negatives/ques
     "当用户要求读取所有 memory 时，插件会注入内容",
   ]) {
     assert.equal(detectFullRecall(text), false, text);
+  }
+});
+
+test("mixed full recall instructions stage every topic while task filenames remain unrelated", async (t) => {
+  for (const prompt of [
+    "请加载 memory，然后评审 design.md",
+    "请加载当前项目的全部 memory，包括 MEMORY.md 和所有主题文件",
+    "Load memory and review README.md",
+  ]) {
+    const { temp, config, project, memoryDir } = pluginFixture();
+    t.after(() => cleanup(temp));
+    const before = treeSnapshot(memoryDir);
+    const fake = fakeCtx();
+    apply(fake.ctx, config);
+    t.after(() => fake.dispose());
+    const result = await runFirstStep(fake, fakeAgent(project), prompt);
+    const full = result.messages.find((message) => message.source?.form === "full-recall");
+    assert.ok(full, prompt);
+    assert.match(full.content[0].text, /Use make build and GitHub Actions/);
+    assert.match(full.content[0].text, /Never summarize diffs/);
+    assert.match(full.content[0].text, /Complete: yes/);
+    assert.equal(result.durableMessages.length, 1);
+    assert.doesNotMatch(
+      JSON.stringify(result.durableMessages),
+      /Use make build and GitHub Actions/,
+    );
+    assertSnapshotsEqual(assert, before, treeSnapshot(memoryDir));
   }
 });
 

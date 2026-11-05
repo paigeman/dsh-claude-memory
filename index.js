@@ -82,13 +82,36 @@ function stripCodeFences(text) {
  * requests, code examples, and "how do I load memory?" questions are rejected.
  */
 export function detectFullRecall(rawText) {
-  const text = stripCodeFences(rawText).trim();
-  if (!text) return false;
+  const request = stripCodeFences(rawText).trim();
+  if (!request) return false;
 
-  // A request for one file, an index, or documentation is not permission to
-  // attach every project memory file. Leave selective requests to the tool.
-  if (/\bmemory\.(?:md|js|ts|json)\b|[^\s]+\.md\b/i.test(text)) return false;
-  if (/(?:除了|排除|except|excluding)/i.test(text)) return false;
+  // Keep exclusions and negated loads authoritative even across task clauses.
+  if (/(?:除了|排除|\b(?:except|excluding)\b)/i.test(request)) return false;
+  const negative =
+    /(?:不要|别|无需|不用|不必|禁止|忽略|ignore|don't|do not|never|without)(?!\s*(?:忘记|forget))[^。！？.!?\n]{0,12}(?:加载|读取|载入|load|read|recall)/i;
+  if (negative.test(request)) return false;
+
+  // A following task may name arbitrary files without narrowing the memory load.
+  const text = request
+    .split(
+      /(?:然后|随后|接着|接下来)|(?:并且|并|再)(?=(?:请)?(?:评审|审查|检查|分析|修改|修复|实现|解释|阅读|读取|编写|处理))|\bthen\b|\band\s+(?=(?:please\s+)?(?:review|inspect|check|analy[sz]e|edit|fix|implement|explain|read|write|process)\b)/i,
+      1,
+    )[0]
+    .trim();
+
+  // Explicit inclusions enumerate a full load. A named file used as the load
+  // target, or a selective file request, still belongs to the recall tool.
+  const namedFile = /\bmemory\.(?:md|js|ts|json)\b|[^\s]+?\.md\b/i.exec(text);
+  if (namedFile) {
+    const memory = /\bmemor(?:y|ies)\b(?!\.(?:md|js|ts|json)\b)|记忆|回忆/i.exec(text);
+    const memoryEnd = memory ? memory.index + memory[0].length : text.length;
+    const fileEnd = namedFile.index + namedFile[0].length;
+    const inclusive =
+      memory &&
+      memoryEnd < fileEnd &&
+      /(?:包括|包含|\bincluding\b|\bsuch as\b)/i.test(text.slice(memoryEnd, fileEnd));
+    if (!inclusive) return false;
+  }
   if (
     !/(?:全部|所有|\ball\b)/i.test(text) &&
     /(?:索引|主题|相关|某个|某些|仅|只(?:要|读|加载|读取)|源码|机制|配置|教程|\b(?:only|index|topic|selected|matching|documentation|implementation|usage)\b)/i.test(
@@ -97,9 +120,6 @@ export function detectFullRecall(rawText) {
   )
     return false;
 
-  const negative =
-    /(?:不要|别|无需|不用|不必|禁止|忽略|ignore|don't|do not|never|without)(?!\s*(?:忘记|forget))[^。！？.!?\n]{0,12}(?:加载|读取|载入|load|read|recall)/i;
-  if (negative.test(text)) return false;
   if (
     /^\s*(?:如何|怎么|怎样|怎么才能|how\s+(?:do|can|should|to|does))/i.test(text) &&
     /[?？]\s*$/.test(text)

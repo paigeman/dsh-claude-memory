@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-claude-memory",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Read-only recall of Claude Code / Claude Code Desktop project Auto Memory inside DeepSeek Harness",
@@ -29,8 +29,7 @@
     "icon.svg",
     "README.md",
     "README.zh-CN.md",
-    "LICENSE",
-    "REVIEW-2026-11-05.md"
+    "LICENSE"
   ],
   "icon": "./icon.svg",
   "dsh": {
@@ -39,8 +38,8 @@
     }
   },
   "scripts": {
-    "format": "prettier --config .prettierrc.json --write . ../README.md",
-    "format:check": "prettier --config .prettierrc.json --check . ../README.md",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "npm run lint:js && npm run lint:markdown",
     "lint:js": "eslint .",
     "lint:markdown": "markdownlint-cli2",

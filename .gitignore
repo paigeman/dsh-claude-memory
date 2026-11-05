@@ -1,4 +1,3 @@
-/*
-!/.gitignore
-!/README.md
-!/dsh-claude-memory/
+node_modules/
+.agent-tmp/
+coverage/

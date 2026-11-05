@@ -1,5 +1,5 @@
 {
-  "globs": ["*.md", "../README.md"],
+  "globs": ["**/*.md"],
   "ignores": ["node_modules/**", ".agent-tmp/**", "coverage/**"],
   "config": {
     "default": true,
