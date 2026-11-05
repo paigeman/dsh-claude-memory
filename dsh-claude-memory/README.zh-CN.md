@@ -1,190 +1,236 @@
 # Claude Code Memory Reader for DeepSeek Harness
 
-在 DeepSeek Harness（DSH）中**只读召回** Claude Code / Claude Code Desktop 的项目级 Auto Memory。
+[English guide](README.md)
 
-插件直接复用 Claude Code 已经积累在 `~/.claude/projects/<project>/memory/` 的记忆，不另外维护一套 Memory 系统；运行期间绝不写入、修改、删除、移动、同步、压缩任何 Memory 文件，也不把记忆内容复制到 DSH 的持久化存储。
+这个插件让 DeepSeek Harness（DSH）读取当前仓库在 Claude Code 或 Claude Code Desktop 中积累的 Auto Memory。已有的项目偏好、历史决定和反馈可以继续用于 DSH 对话，无需手工复制记忆文件。
 
-- 包名：`@local/dsh-claude-memory`
-- 纯 Host 端 Cordis 插件；无 Client 包、无数据库、无外部服务、无向量检索。
-- 实际验证环境：DSH Desktop + Web GUI；Host API 在 Web/Desktop/TUI 中共用。
+插件运行时只读。它先提供 `MEMORY.md` 索引，再让模型按任务调用 `claude_code_memory` 读取相关主题。你也可以直接说“请加载 memory”，要求加载当前项目的全部有效记忆。
 
-## 功能
+当前版本为 0.1.1，验证环境为 macOS 上的 DSH Desktop 0.2.1-rc.5。安装、消息格式和离线请求调用链已经验证，真实模型对话的端到端验收仍待完成。Windows、Linux 和其他 DSH 版本需要另行验证。
 
-1. **精确识别当前仓库的 Memory**
-   - 对会话工作目录做 `realpath`；
-   - 找 git root，并把 worktree 归一化到主仓库；
-   - 子目录映射到仓库根；非 Git 项目映射到项目目录本身；
-   - 使用 Claude Code 的 `sanitizePath`（非字母数字全部变 `-`，超长路径追加 hash）；
-   - 兼容 `CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_REMOTE_MEMORY_DIR`、`CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`、`CLAUDE_CODE_PROJECT_DIR_NAME`、`autoMemoryDirectory` 以及文件式的 policy/local/user 设置。
-2. **会话开始只注入有上限的 `MEMORY.md` 索引**（Claude Code 的 200 行 / 25,000 字符上限），不默认注入任何主题文件。
-3. **按需自动召回**：模型通过 `claude_code_memory` 工具，用索引或关键词选择相关主题文件；只有选中的文件正文进入上下文。
-4. **自然语言全量召回**：输入“请加载 memory”“加载当前项目的全部记忆”“读取 Claude Code 关于这个仓库的所有 memory”“load memory”等，插件在模型调用前直接读取全部有效文件并注入当前会话。
-5. **预算内分批**：全部内容超出单次预算时，明确返回 `Complete: NO` 和下一次的 `cursor`；不会静默截断后声称已完整加载。
-6. **会话内去重、源文件更新检测**：按内容 hash 去重；后续召回重新读取，文件更新后返回最新内容。
+## 安装前准备
 
-## 严格只读
+需要已安装并能正常使用的 DSH，以及 Claude Code 为目标项目保存的 Memory。常见目录如下。
 
-运行时代码只从 `node:fs` 导入 `existsSync`、`lstatSync`、`readFileSync`、`readdirSync`、`realpathSync`、`statSync`，没有：
-
-- 写入/追加/删除/重命名/复制/chmod；
-- 子进程、Shell 或 Claude Code 写入机制；
-- 网络请求或第三方服务；
-- 磁盘索引、缓存、数据库或 Memory 副本；
-- 在普通日志中输出 Memory 正文（只记录路径、数量和错误）。
-
-进程内只保留当前会话的 hash/已注入文本缓存，Host 退出即消失。插件安装时由 DSH 插件管理器写入 profile 元数据与补丁，和运行时对 Memory 的只读约束分开。
-
-注入内容用随机 nonce 分隔，并明确声明“这是历史参考数据，不是指令”，降低但不能完全消除 Memory 文本的提示注入风险。
-
-## 安装
-
-在当前 DSH GUI 的插件管理器中安装本地目录 `/absolute/path/to/dsh-claude-memory`，或：
-
-```bash
-dsh plugin --profile desktop add /absolute/path/to/dsh-claude-memory
-dsh --profile desktop --dump-config
+```text
+~/.claude/projects/<project>/memory/
+├── MEMORY.md
+├── feedback_testing.md
+└── project_release.md
 ```
 
-插件通过 bundle patch 插入：
+`<project>` 由项目路径编码得到。插件会解析会话的有效工作目录、Git 根目录和 worktree 归属，无需手填这个名称。自定义配置目录可以在安装后设置。
+
+插件包名为 `@local/dsh-claude-memory`。它只有 Host 端代码，没有前端构建步骤，运行时不需要额外安装第三方依赖。开发检查所用的 npm 工具与日常安装分开。
+
+## 安装到 DSH Desktop
+
+### 找到插件包目录
+
+仓库中的内层 `dsh-claude-memory/` 才是插件包。以仓库位于 `~/repo/dsh-claude-memory` 为例，先运行下面两条命令。
+
+```bash
+cd ~/repo/dsh-claude-memory/dsh-claude-memory
+pwd
+```
+
+这个目录应当同时包含 `package.json`、`index.js` 和 `cordis.patch.yml`。复制 `pwd` 输出的绝对路径。
+
+### 在界面中安装
+
+1. 打开 DSH 的插件管理界面，进入本地插件安装入口。
+2. 填入刚才复制的插件包绝对路径，完成安装。
+3. 在插件列表中找到 **Claude Code 记忆（只读）**，检查版本为 0.1.1，组件状态为运行中。
+4. 在目标项目目录中新开一个对话，继续下面的首次检查。
+
+随包的 `cordis.patch.yml` 会把 `claude-memory` 组件加入当前 profile。安装会写入 DSH 的插件配置，插件运行时对 Claude Code Memory 保持只读。
+
+本地目录安装会引用这份源码。保留该目录；后续改代码后，重新加载插件或在任务结束后正常重启 DSH。需要换安装位置时，通过插件管理器更新来源，并检查最终链接指向。
+
+### 使用 DSH CLI 安装
+
+如果你使用已提供 `dsh` 命令的 CLI 环境，可以把插件加入相应 profile。下面以 `tui` 为例，在插件包目录运行。
+
+```bash
+dsh plugin --profile tui add "link:$PWD"
+dsh --profile tui --dump-config
+```
+
+在输出的组件配置中检查 `id: claude-memory` 和 `name: '@local/dsh-claude-memory'`。Desktop 的 `desktop` profile 由应用保留管理，使用上面的 Desktop 安装流程；普通 CLI 发行版可能拒绝操作它。
+
+## 第一次使用
+
+在 Claude Code 已保存过项目记忆的目录中打开 DSH 对话，发送下面这段话。
+
+```text
+请加载当前项目的 memory。请调用 claude_code_memory 的 status 动作，报告识别到的仓库和 Memory 目录，再说明加载文件数及是否完整加载。
+```
+
+先核对返回的 `Project root` 和 `Memory directory`。它们应该指向你正在处理的项目。若目录不存在，确认 Claude Code 已为该项目保存记忆，或按下面的自定义目录示例指定位置。
+
+全量加载回执包含文件数、文件名和完整性状态。`Complete: yes` 表示本次全量加载完整；`Complete: NO` 表示仍有内容未进入当前上下文。后者可能来自批次预算、累计上下文上限、文件过大或读取失败，要结合回执中的原因判断。
+
+这段检查会调用当前对话配置的模型，正常产生模型请求。加载后的 Memory 会随该对话的模型请求发送。
+
+## 日常按需召回
+
+直接提出当前任务即可。插件首次激活时提供有上限的 `MEMORY.md` 索引，主题文件正文由模型判断是否需要读取。相关性选择使用模型判断和本地关键词评分，没有单独的检索模型请求。
+
+需要明确指定读取范围时，可以这样说。
+
+```text
+请调用 claude_code_memory 的 recall 动作，查询“发布分支规则”，结合召回内容检查这次发布计划。
+```
+
+也可以给出 Memory 目录中的相对文件名，让模型传入以下参数。
+
+```json
+{ "action": "recall", "files": ["feedback_testing.md"] }
+```
+
+`query` 单次默认最多选择 3 个相关文件，`files` 可以直接指定文件。当前任务和现有仓库状态优先，过时的记忆需要核对后再采用。
+
+### 全量加载与继续加载
+
+“请加载 memory”“加载当前项目的全部记忆”和“load all memories”会触发全量加载。插件在主会话的模型请求前处理这些明确请求，内容按预算分批。
+
+若回执返回 `Complete: NO` 和下一批 `cursor`，让模型使用回执中实际给出的数值继续调用工具。
+
+```text
+请按上一条回执给出的 cursor 继续调用 claude_code_memory，action 使用 load_all。报告未加载原因，直到完整加载或明确遇到上限。
+```
+
+仅到达最后一个 cursor 还不足以说明完整。此前被跳过的文件、后来变化的内容，以及累计上下文容量都要满足要求。累计上限不足时，在插件配置中调大 `maxContextChars`，重新加载插件后从头召回；无法读取或过大的文件也会明确报告。
+
+“不要加载 memory”和“如何加载 memory？”不会触发全量读取。指定某个 `.md` 文件、索引或相关主题的请求交给按需工具处理。子 Agent 的内部委派提示也不会触发自然语言全量加载。
+
+### 工具动作速查
+
+工具名为 `claude_code_memory`。下表中的参数由模型调用工具时使用。
+
+| action     | 用途                           | 进入临时模型上下文的内容 |
+| ---------- | ------------------------------ | ------------------------ |
+| `status`   | 检查路径、设置、警告和缓存状态 | 无新增记忆正文           |
+| `overview` | 查看可读范围                   | 索引与主题清单           |
+| `recall`   | 按 `query` 或 `files` 选择内容 | 选中文件正文             |
+| `load_all` | 分批加载全部有效文件           | 本批已加载正文           |
+
+`recall` 和 `load_all` 支持 `force: true` 刷新已加载文件。后续召回会重新读取源文件，每个模型请求只带每个已召回文件的一份当前正文。
+
+## 配置自定义目录
+
+通常可以保持随包配置。需要指定路径时，在当前 profile 的 `cordis.patch.yml` 为插件添加覆盖。默认 Desktop profile 位于 `~/.dsh/profiles/desktop/`；配置过 `DSH_HOME` 时使用对应目录。保留文件中的已有配置，在同一 YAML 列表内添加下面的条目。
 
 ```yaml
 - id: claude-memory
-  name: '@local/dsh-claude-memory'
+  config:
+    memoryDir: /absolute/path/to/project/memory
+    maxBatchChars: 48000
+    maxContextChars: 200000
 ```
 
-不修改 DSH 核心源码。依赖 Host 的 `tools` 服务与 `agent/pre-step` 事件（DSH 0.2.1-rc.5 已提供）。
+用目标 Memory 目录的绝对路径替换示例，保存后重新加载插件，再调用 `status` 检查。`memoryDir` 直接指定完整目录；如果只是 Claude 配置根目录不同，改用 `configDir`，由插件继续按项目推导 Memory 路径。
 
-注入消息采用 Session Format V4 的生产者来源 `kind: 'claude-memory'`，不再发送已废弃的 V3 `kind: 'plugin'` 包装。项目路径优先读取 DSH 的有效工作目录，再回退到会话头中的原始路径；索引去重标记按 Memory 目录区分。无法确定项目路径时，不使用 Host 进程目录猜测。
-
-修改已链接的插件代码后，需要重新加载插件运行时或重启 DSH，使正在运行的 Host 使用修复后的代码。
-
-## 使用
-
-### 自动索引 + 按需召回
-
-会话第一步会收到 `mode=index` 的 `MEMORY.md` 索引块。普通任务不会加载主题文件。若任务确实依赖历史决策/反馈/约定/事故，模型会调用：
-
-```json
-{ "action": "recall", "query": "发布分支规则" }
+```yaml
+- id: claude-memory
+  config:
+    configDir: /absolute/path/to/claude-config
 ```
 
-或直接点名索引里的文件：
+路径覆盖按以下顺序选择。
 
-```json
-{ "action": "recall", "files": ["branch-workflow.md"] }
-```
+1. 插件配置的 `memoryDir`。
+2. `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`。
+3. 文件式 policy、local、user 设置中的 `autoMemoryDirectory`。
+4. 插件的 `projectDirName` 或兼容变量 `CLAUDE_CODE_PROJECT_DIR_NAME`。
+5. 根据仓库根目录计算的默认路径。
 
-### 自然语言全量召回
+默认配置根目录依次取插件的 `configDir`、`CLAUDE_CONFIG_DIR`、`~/.claude`。`CLAUDE_CODE_REMOTE_MEMORY_DIR` 可以覆盖默认 Memory 基目录。项目内 `.claude/settings.json` 的 `autoMemoryDirectory` 不用于覆盖，CLI `--settings` 和 MDM、远程 policy API 暂不读取。
 
-以下话术会在同一步直接读取并注入全部有效文件：
+### 随包配置
 
-- 请加载 memory
-- 加载当前项目的全部记忆
-- 读取 Claude Code 关于这个仓库的所有 memory
-- 读取全部记忆 / 请读取所有记忆
-- load memory / load all memories / read all Claude Code memory
+下表描述通过本地 bundle 安装后的配置。`includeManifestInIndex` 由随包补丁明确设为 `false`。
 
-“不要加载 memory”“don't load memory”“如何加载 memory？”以及仅仅描述性地提到读取 Memory 的句子不会被误触发。
+| 配置                        | 默认值   | 作用                                              |
+| --------------------------- | -------- | ------------------------------------------------- |
+| `configDir`                 | 未设置   | Claude 配置根目录                                 |
+| `memoryDir`                 | 未设置   | 完整 Memory 目录覆盖                              |
+| `projectDirName`            | 未设置   | `projects/` 下的目录名覆盖                        |
+| `maxBatchChars`             | `48000`  | 单次源字符预算，范围为 4000 到 400000             |
+| `maxContextChars`           | `200000` | 累计正文字符上限，至少等于单次预算，最多 200 万   |
+| `maxFileBytes`              | `524288` | 单文件字节上限，超过明确跳过                      |
+| `maxRecallFiles`            | `3`      | 单次关键词召回文件数，范围为 1 到 5               |
+| `maxScanFiles`              | `500`    | 扫描文件数上限                                    |
+| `maxManifestFiles`          | `200`    | 清单条目上限                                      |
+| `injectIndexInSubagents`    | `false`  | 是否自动向子 Agent 提供索引                       |
+| `respectAutoMemoryDisabled` | `true`   | Claude 关闭自动记忆时跳过自动索引，显式召回仍可用 |
+| `includeManifestInIndex`    | `false`  | 索引是否附带主题清单；缺少有效索引时仍提供清单    |
+| `debug`                     | `false`  | 在 `status` 中增加路径解析轨迹                    |
 
-内容放得下时显示 `Complete: yes`；放不下时显示 `Complete: NO`、已处理条数、`cursor` 和“不要声称已全部加载”的提示。已注入且未变化的文件后续会省略正文；更新过的文件会重新读取。
+字符预算包含源内容，少量包装文本另计。它只是上下文成本的近似，不能当作精确 token 数。
 
-### 工具动作
+## 记忆怎样进入对话
 
-| action | 返回 | 是否注入主题正文 |
-|---|---|---|
-| `overview` | 索引 + 主题文件清单 | 否 |
-| `recall` | 按 `files` 或本地 `query` 选中的文件 | 仅选中文件 |
-| `load_all` | 所有有效文件，按预算分批 | 分批注入 |
-| `status` | 路径、配置、worktree、警告、缓存状态 | 否 |
+插件使用 DSH 的 `tools`、`llm` 服务以及 `agent/pre-step`、`agent/request`、`llm/stream` 生命周期钩子，不修改 DSH 核心源码。
 
-`force: true` 可重复注入本会话已加载且未变化的正文。
+记忆索引与正文以 `role: "user"` 附加到当前模型请求，来源标记为 `source.kind: "claude-memory"`。这个标记用于识别生产者，不会提高消息权限。记忆可以指导项目约定，必须强制执行的限制仍需权限检查或工具钩子。
 
-## 路径规则
+插件不会通过持久化会话消息、工具结果或自身日志保存源正文，也不在磁盘建立 Memory 副本或索引。工具结果只保留文件名、数量、完整性和错误。已召回正文仅在当前进程的会话缓存中存在，重载、卸载或释放会话后清空，需要再次召回。
 
-遵循 Claude Code 2.1.x 源码（`src/memdir/paths.ts`、`src/utils/git.ts`、`src/utils/sessionStoragePortable.ts`）：
+正文会发送给当前 DSH 对话使用的模型。模型回答可能引用这些内容，其他请求日志插件也可能保存出站请求，因此保证范围限于本插件自身的注入与工具结果路径。旧版本已经写入的历史不会自动删除。
 
-```text
-config home  = 插件 configDir > CLAUDE_CONFIG_DIR > ~/.claude
-memory base  = CLAUDE_CODE_REMOTE_MEMORY_DIR > config home
-project root = canonical git root（worktree 共享主仓库），否则 cwd
-project dir  = sanitizePath(project root)（或显式覆盖）
-memory dir   = <memory base>/projects/<project dir>/memory
-```
+读取只接受范围内的文件。越过 Memory 根目录的文件符号链接会被拒绝，符号链接子目录会跳过。超长项目路径若无法核对精确 hash，插件会要求显式指定目录，避免借用相似路径的其他项目记忆。
 
-覆盖优先级：
+## 常见问题
 
-1. `config.memoryDir`（插件配置，主要用于测试/便携场景）
-2. `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE`（完整目录）
-3. policy / local / user 设置里的 `autoMemoryDirectory`（支持 `~/`；项目内 `.claude/settings.json` 按 Claude Code 安全规则忽略）
-4. `config.projectDirName` 或 `CLAUDE_CODE_PROJECT_DIR_NAME`（项目目录名覆盖）
-5. 计算出的默认目录
+### 找不到当前项目的 Memory
 
-安全处理：
+先调用 `status` 检查 DSH 的有效工作目录。多个仓库的公共父目录会被当作独立的非 Git 项目，不会猜测你想使用哪个子仓库。在目标仓库中新建对话，或明确配置已经核对过的 `memoryDir`。
 
-- 所有路径 realpath + NFC；符号链接工作区映射到真实仓库。
-- 默认 memory 目录的符号链接若逃出 `<config>/projects/`，拒绝加载。
-- 主题文件符号链接只有在真实路径仍位于 memory 目录内时才读取；越界链接跳过并报告。
-- 超长项目名只在 `projects/<prefix>-<hash>/memory` **唯一**匹配时使用；多个候选视为歧义，拒绝加载。
-- Memory 不存在、不可读、索引不可读、worktree 结构异常等都有明确状态/原因；绝不回退到兄弟仓库的 Memory。
+自定义 Claude 配置需要让 DSH Host 获得对应环境变量，或直接设置插件的 `configDir`。不同 Desktop 版本若隔离存储，也采用显式目录配置。
 
-## 配置
+### 工具回执没有正文，模型还能看到吗
 
-在 profile 的 `cordis.patch.yml` 中针对 `id: claude-memory` 覆盖：
+能。回执用于记录加载结果，正文在随后发给模型的临时请求中。重载插件后正文缓存消失，旧回执仍然存在，此时再次召回即可。
 
-| 配置 | 默认 | 说明 |
-|---|---|---|
-| `configDir` | 未设置 | Claude 配置根，优先于 `CLAUDE_CONFIG_DIR` |
-| `memoryDir` | 未设置 | 完整 Memory 目录覆盖 |
-| `projectDirName` | 未设置 | `projects/` 下的项目目录名覆盖 |
-| `maxBatchChars` | `48000` | 单次注入字符预算（4k–400k） |
-| `maxFileBytes` | `524288` | 单文件读取上限，超过则明确不加载 |
-| `maxRecallFiles` | `3` | 单次关键词召回最多主题文件数（1–5） |
-| `maxScanFiles` | `500` | 扫描上限，截断会报告 |
-| `maxManifestFiles` | `200` | 清单行数上限 |
-| `injectIndexInSubagents` | `false` | 是否向子 Agent 注入索引 |
-| `respectAutoMemoryDisabled` | `true` | Claude 设置关闭自动记忆时跳过自动索引；显式召回仍可用 |
-| `includeManifestInIndex` | `false` | 会话开始索引是否附带主题清单 |
-| `debug` | `false` | `status` 中输出解析轨迹 |
+### 会话仍报 V4 消息格式错误
 
-## 测试
+0.1.1 使用当前 V4 编码器接受的生产者来源，不再产生旧版 `kind: "plugin"` 包装。此前失败的旧会话可能仍留着内存写入队列。等待活动任务结束，正常退出并重新打开 DSH，再恢复会话。保留原会话文件。
+
+`DeepSeek Messages stream ended before message_stop` 是另一项流式传输错误。本插件的修复与离线测试没有确认或解决它的所有成因。
+
+### 能让插件保存新记忆吗
+
+当前版本专注读取已有 Memory。创建、修改与删除记忆继续由 Claude Code 或你自己完成。
+
+## 开发与验证
+
+在插件包目录操作。运行时代码使用 Node.js 20 及以上 API；开发工具要求 Node.js `^22.22.0 || >=24.8.0`，与参考仓库的工具链要求一致。
 
 ```bash
-node --test test/*.test.js
+npm ci --ignore-scripts
+npm run format
+npm run lint
+npm test
 ```
 
-共 57 项测试，覆盖多 Memory 文件准确匹配、普通任务不加载全部、自然语言全量召回、有效工作目录切换与索引作用域、git worktree/子目录、自定义配置目录与 Memory 目录、不存在/不可读 Memory、只读字节与 mtime 不变、文件更新后读取最新内容、超预算不虚报完整、符号链接越界、源码只读审计等。
+`npm run format` 使用 Prettier；`npm run lint` 依次运行 ESLint 推荐规则和 Markdownlint。配置参考 `AI-demo`，覆盖插件源码、测试、配置与 README。`npm run check` 会检查格式、运行 lint 和测试，适合提交前使用。
 
-原生 V4 回归测试需要指定已安装的 DSH 模块；未指定时，`test/dsh-v4.test.js` 会明确跳过。macOS 可用以下命令调用安装包内的真实编码器，不启动 Host 或模型请求：
+普通 `npm test` 使用 Node 内置测试运行器，不需要模型密钥。未指定 DSH 原生模块时，安装包集成测试会明确跳过。macOS 上可以运行完整的原生套件，调用已安装 DSH 的真实编码器与请求封装，模型适配器保持离线。
 
 ```bash
+DSH_HOME="$PWD/../.agent-tmp/native-dsh-home" \
 DSH_SESSION_FORMAT_MODULE='/Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js' \
 ELECTRON_RUN_AS_NODE=1 \
 '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test test/*.test.js
 ```
 
-## 已知边界
+测试覆盖项目隔离、worktree、目录覆盖、符号链接边界、显式全量加载、分批完整性、只读字节与 mtime 不变，以及源正文不进入持久化消息。它们验证插件实现和离线 Host 调用链，真实模型的召回表现需要单独验收。
 
-- 无法读取 CLI `--settings`（flagSettings）；只读取文件式 policy/local/user 设置。MDM/远程 policy API 也未接入。
-- `CLAUDE_CODE_PROJECT_DIR_NAME` 作为兼容性目录名覆盖支持；当前审阅的 Claude Code 2.1.308 源码中没有这个变量，`status` 会标记为显式覆盖。
-- 如果会话目录只是多个 Git 仓库的普通父目录（自身不在任何仓库内），插件会按非 Git 项目处理，不会猜测应使用哪个子仓库；请在目标仓库内启动会话。
-- 自然语言全量召回针对主会话中用户编写的消息；子 Agent 的内部委派提示不视为用户触发，子 Agent 可显式调用工具。向子 Agent 自动注入索引默认关闭（`injectIndexInSubagents`）。
-- 本机验证 Claude Code Desktop 与 CLI 共用 `~/.claude`。若某个 Desktop 版本隔离配置，需要设置 `CLAUDE_CONFIG_DIR` 或 `configDir`；插件不会猜测其他 Application Support 路径。
-- macOS 为实际验证平台；Windows/Linux 使用 Node 平台 path/realpath API 实现并做了有限单测，但未在真实 Windows/Linux 上运行。
-- Memory 目录内的符号链接子目录会被跳过（文件链接仍支持），避免循环和越界。
-- 字符预算只是上下文成本的近似，不是模型精确 token 数；可配置。
-- 嵌套 `.md` 会纳入全量召回；Claude Code 自己的主题扫描会排除嵌套 `MEMORY.md`，本插件把它当普通文件，以保证显式全量加载不遗漏。
-- 自动召回是“模型驱动”：插件提供索引与工具，由模型判断何时相关；不额外调用 LLM 做相关性选择，因此不会把 Memory 发给其他服务，但自主性弱于专门的 side query。
-- 提示注入防护是纵深防御，不是硬安全边界。
+## 兼容范围与来源
 
-## 为什么没有直接复用社区插件
+路径处理参考本机可读的 Claude Code 2.1.x 逆向重建源码，并用本仓库测试验证；这不等于所有官方发行版都已验证。索引读取上限为 200 行或 25000 个 JavaScript 字符，字符计量与官方文档所述的 25KB 并不完全相同。嵌套 `.md` 文件也会纳入本插件的显式全量召回。
 
-2026-11-05 核查：
+Claude Code 自身的索引启动加载、主题按需读取机制可见 [Auto Memory 官方文档](https://code.claude.com/docs/en/memory)。本插件不会额外调用模型筛选记忆，也不接管 Claude Code 的写入功能。实现修复和边界取舍记录在[评审文档](REVIEW-2026-11-05.md)。
 
-- [`cnzgray/dsh-plugins` — `@cnzgray/dsh-claude-auto-memory`](https://github.com/cnzgray/dsh-plugins)：会注入 MEMORY.md 和“更新/创建 Memory”的写入指南，使用旧的 `agent/session-start` 事件；路径用简单替换并尝试下划线变体，向上遍历目录，缺少 `CLAUDE_CONFIG_DIR`、`autoMemoryDirectory`、Desktop 根目录支持；没有按需主题召回，也没有预算/完整性报告。其写导向提示与本任务严格只读要求冲突。
-- [`YYTbit/dsh-plugin-claude-bridge`](https://github.com/YYTbit/dsh-plugin-claude-bridge)：每次请求把所有 Memory 注入动态上下文（按字节截断），路径为简单 replace 编码，还包含配置/技能同步；不满足按需、严格只读、路径身份和预算语义。
-
-两者都无法在不违反本任务要求的前提下直接复用，因此基于当前 DSH Host API 实现了一个聚焦的只读 Reader。
-
-## 许可
-
-MIT。Claude Code 是 Anthropic 的产品；本包是独立的只读桥接插件，与 Anthropic 无隶属关系。
+本项目采用 MIT 许可。Claude Code 属于 Anthropic，本插件是独立项目。

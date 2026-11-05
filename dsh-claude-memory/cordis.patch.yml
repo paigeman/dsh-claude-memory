@@ -2,7 +2,7 @@
 # Installed as a profile bundle; the row is inserted into the Host composition.
 - insert:
     - id: claude-memory
-      name: '@local/dsh-claude-memory'
+      name: "@local/dsh-claude-memory"
       config:
         maxBatchChars: 48000
         maxFileBytes: 524288
