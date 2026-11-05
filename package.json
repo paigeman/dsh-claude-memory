@@ -1,6 +1,6 @@
 {
   "name": "dsh-claude-memory-reader",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "Read-only recall of Claude Code / Claude Code Desktop project Auto Memory inside DeepSeek Harness",
   "keywords": [

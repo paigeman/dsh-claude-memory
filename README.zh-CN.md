@@ -6,7 +6,7 @@
 
 插件运行时只读。它先提供 `MEMORY.md` 索引，再让模型按任务调用 `claude_code_memory` 读取相关主题。你也可以直接说“请加载 memory”，要求加载当前项目的全部有效记忆。
 
-当前版本为 0.1.3，验证环境为 macOS 上的 DSH Desktop 0.2.1-rc.5。安装、消息格式和离线请求调用链已经验证，真实模型对话的端到端验收仍待完成。CI 会在 Linux、macOS、Windows 上验证固定版本的 DSH 库。其他系统的 Desktop 安装和真实模型表现仍需另行验收。
+当前版本为 0.1.4，兼容目标是 DSH 0.2.1-rc.5。CI 会在 Linux、macOS、Windows 上验证固定版本的 DSH 库和打包后的插件。Desktop 安装流程已在 macOS 检查过，真实模型对话的端到端验收仍待完成。其他系统的 Desktop 安装和真实模型表现仍需另行验收。
 
 ## 安装前准备
 
@@ -48,7 +48,7 @@ dsh plugin --profile tui add dsh-claude-memory-reader
 dsh --profile tui --dump-config
 ```
 
-在输出的组件配置中检查 `id: claude-memory` 和 `name: 'dsh-claude-memory-reader'`。需要指定版本时，可以使用 `dsh-claude-memory-reader@0.1.3` 这样的版本号写法。
+在输出的组件配置中检查 `id: claude-memory` 和 `name: 'dsh-claude-memory-reader'`。需要指定版本时，可以使用 `dsh-claude-memory-reader@0.1.4` 这样的版本号写法。
 
 Desktop 的 `desktop` profile 由应用保留管理，使用上面的插件管理界面安装；普通 CLI 发行版可能拒绝操作它。
 

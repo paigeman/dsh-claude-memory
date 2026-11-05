@@ -4,7 +4,7 @@
 
 Read your project's existing Claude Code or Claude Code Desktop Auto Memory from DeepSeek Harness (DSH). The plugin supplies a bounded `MEMORY.md` index, then lets the model recall topic files when the task needs them. An explicit request such as “load all memories” starts a full, budgeted recall.
 
-Version 0.1.3 has been installed and tested offline on macOS with DSH Desktop 0.2.1-rc.5. A real-model conversation has not yet been validated end to end. CI exercises the pinned DSH libraries on Linux, macOS, and Windows. Desktop installation and real-model behavior on other systems still need separate verification.
+Version 0.1.4 targets DSH 0.2.1-rc.5. CI exercises the pinned DSH libraries and packed plugin on Linux, macOS, and Windows. Desktop installation has been checked on macOS. A real-model conversation has not yet been validated end to end; Desktop installation and real-model behavior on other systems still need separate verification.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ dsh plugin --profile tui add dsh-claude-memory-reader
 dsh --profile tui --dump-config
 ```
 
-Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. To choose a specific release, use a versioned spec such as `dsh-claude-memory-reader@0.1.3`.
+Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. To choose a specific release, use a versioned spec such as `dsh-claude-memory-reader@0.1.4`.
 
 Desktop reserves its `desktop` profile for application-managed installation. A standalone CLI distribution may reject access to that profile; use the Desktop plugin manager for it.
 
