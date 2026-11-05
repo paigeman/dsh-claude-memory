@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { realpathSync, symlinkSync } from "node:fs";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { test } from "node:test";
 import {
   findGitRoot,
@@ -55,10 +55,10 @@ test("memory path validation rejects unsafe overrides", () => {
   assert.match(validateMemoryPath("C:\\").error, /unsafe/);
   assert.match(validateMemoryPath("\\\\server\\share").error, /unsafe/);
   assert.match(validateMemoryPath("~").error, /unsafe|non-absolute/);
-  assert.equal(validateMemoryPath("/tmp/memory").value, "/tmp/memory");
+  assert.equal(validateMemoryPath("/tmp/memory").value, normalize("/tmp/memory"));
   assert.equal(
     validateMemoryPath("~/memory", { expandHome: true, home: "/Users/x" }).value,
-    "/Users/x/memory",
+    join("/Users/x", "memory"),
   );
   assert.match(validateProjectDirName("../escape").error, /single path component/);
   assert.match(validateProjectDirName("a/b").error, /single path component/);
@@ -119,7 +119,7 @@ test("git worktree maps to the main repository memory", () => {
   });
   const location = resolveMemoryLocation({ cwd: worktree, env: {}, home });
   assert.equal(location.ok, true);
-  assert.equal(location.projectRoot, realpathSync(main));
+  assert.equal(location.projectRoot, realpathSync(main), JSON.stringify(location, null, 2));
   assert.equal(location.isWorktree, true);
   assert.equal(location.memoryDir, realpathSync(dir));
   assert.equal(location.memoryDirExists, true);
