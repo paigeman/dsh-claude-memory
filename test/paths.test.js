@@ -83,7 +83,7 @@ test("non-git project maps to its own sanitized path", () => {
   });
   const location = resolveMemoryLocation({ cwd: project, env: {}, home });
   assert.equal(location.ok, true);
-  assert.equal(location.projectRoot, realpathSync(project));
+  assert.equal(location.projectRoot, realpathSync.native(project));
   assert.equal(location.memoryDir, realpathSync(dir));
   assert.equal(location.memoryDirExists, true);
   assert.equal(location.entrypointExists, true);
@@ -97,12 +97,12 @@ test("git subdirectory maps to the repository root", () => {
   const repo = makeGitRepo(join(temp, "repo"));
   const sub = join(repo, "packages", "app", "src");
   ensureDir(sub);
-  const dir = memoryPath(join(home, ".claude"), realpathSync(repo), {
+  const dir = memoryPath(join(home, ".claude"), realpathSync.native(repo), {
     "MEMORY.md": "- [A](a.md) — a\n",
   });
   const location = resolveMemoryLocation({ cwd: sub, env: {}, home });
   assert.equal(location.ok, true);
-  assert.equal(location.projectRoot, realpathSync(repo));
+  assert.equal(location.projectRoot, realpathSync.native(repo));
   assert.equal(location.memoryDir, realpathSync(dir));
   cleanup(temp);
 });
@@ -113,18 +113,28 @@ test("git worktree maps to the main repository memory", () => {
   const main = makeGitRepo(join(temp, "main"));
   const worktree = makeWorktree(main, join(temp, "worktree"));
   const configHome = join(home, ".claude");
-  const dir = memoryPath(configHome, realpathSync(main), {
+  const dir = memoryPath(configHome, realpathSync.native(main), {
     "MEMORY.md": "- [WT](worktree.md) — shared\n",
     "worktree.md": "shared memory\n",
   });
   const location = resolveMemoryLocation({ cwd: worktree, env: {}, home });
   assert.equal(location.ok, true);
-  assert.equal(location.projectRoot, realpathSync(main), JSON.stringify(location, null, 2));
+  assert.equal(location.projectRoot, realpathSync.native(main), JSON.stringify(location, null, 2));
   assert.equal(location.isWorktree, true);
   assert.equal(location.memoryDir, realpathSync(dir));
   assert.equal(location.memoryDirExists, true);
+  const mainLocation = resolveMemoryLocation({ cwd: main, env: {}, home });
+  const nativeLocation = resolveMemoryLocation({
+    cwd: realpathSync.native(worktree),
+    env: {},
+    home,
+  });
+  assert.equal(mainLocation.projectRoot, location.projectRoot);
+  assert.equal(mainLocation.memoryDir, location.memoryDir);
+  assert.equal(nativeLocation.projectRoot, location.projectRoot);
+  assert.equal(nativeLocation.memoryDir, location.memoryDir);
   const canonical = resolveCanonicalGitRoot(findGitRoot(worktree));
-  assert.equal(canonical.root, realpathSync(main));
+  assert.equal(canonical.root, realpathSync.native(main));
   cleanup(temp);
 });
 
@@ -142,7 +152,7 @@ test("worktree backlink accepts native path spelling and rejects a different fil
   writeFile(backlink, `${realpathSync.native(gitPath)}\n`);
   const accepted = resolveCanonicalGitRoot(worktree);
   assert.equal(accepted.canonicalized, true, JSON.stringify(accepted));
-  assert.equal(accepted.root, realpathSync(main));
+  assert.equal(accepted.root, realpathSync.native(main));
 
   writeFile(backlink, `${join(main, ".git", "config")}\n`);
   const rejected = resolveCanonicalGitRoot(worktree);
@@ -157,12 +167,12 @@ test("symlinked cwd resolves to the real repository and same memory", () => {
   const repo = makeGitRepo(join(temp, "real-repo"));
   const link = join(temp, "linked-worktree");
   symlinkSync(repo, link, "dir");
-  const dir = memoryPath(join(home, ".claude"), realpathSync(repo), {
+  const dir = memoryPath(join(home, ".claude"), realpathSync.native(repo), {
     "MEMORY.md": "index\n",
   });
   const location = resolveMemoryLocation({ cwd: link, env: {}, home });
   assert.equal(location.ok, true);
-  assert.equal(location.cwd, realpathSync(repo));
+  assert.equal(location.cwd, realpathSync.native(repo));
   assert.equal(location.memoryDir, realpathSync(dir));
   cleanup(temp);
 });
@@ -304,7 +314,7 @@ test("symlinked memory directory escaping projects/ is refused", () => {
   const outside = join(temp, "other-repo-memory");
   ensureDir(outside);
   writeFile(join(outside, "MEMORY.md"), "other repo\n");
-  const projectName = realpathSync(project).replace(/[^a-zA-Z0-9]/g, "-");
+  const projectName = realpathSync.native(project).replace(/[^a-zA-Z0-9]/g, "-");
   const parent = join(home, ".claude", "projects", projectName);
   ensureDir(parent);
   symlinkSync(outside, join(parent, "memory"), "dir");
@@ -331,7 +341,7 @@ test("long project names with multiple candidates are ambiguous and refused", ()
   const home = join(temp, "home");
   const project = join(temp, "a".repeat(70), "b".repeat(70), "c".repeat(70));
   ensureDir(project);
-  const prefix = sanitizedPrefix(realpathSync(project));
+  const prefix = sanitizedPrefix(realpathSync.native(project));
   const projectsDir = join(home, ".claude", "projects");
   ensureDir(join(projectsDir, `${prefix}-aaa`, "memory"));
   ensureDir(join(projectsDir, `${prefix}-bbb`, "memory"));
@@ -350,13 +360,13 @@ test("one unrelated long-prefix candidate is not sufficient project identity", (
   const home = join(temp, "home");
   const project = join(temp, "a".repeat(70), "b".repeat(70), "c".repeat(70));
   ensureDir(project);
-  const prefix = sanitizedPrefix(realpathSync(project));
+  const prefix = sanitizedPrefix(realpathSync.native(project));
   const projects = join(home, ".claude", "projects");
   ensureDir(join(projects, `${prefix}-unverified`, "memory"));
   const rejected = resolveMemoryLocation({ cwd: project, env: {}, home });
   assert.equal(rejected.ok, false);
   assert.equal(rejected.code, "UNVERIFIED_PROJECT_DIR");
-  const exact = sanitizePath(realpathSync(project));
+  const exact = sanitizePath(realpathSync.native(project));
   ensureDir(join(projects, exact, "memory"));
   const accepted = resolveMemoryLocation({ cwd: project, env: {}, home });
   assert.equal(accepted.ok, true);
@@ -373,7 +383,7 @@ test("a parent project symlink cannot escape the default projects root", (t) => 
   ensureDir(project);
   ensureDir(projects);
   ensureDir(join(outside, "memory"));
-  symlinkSync(outside, join(projects, sanitizePath(realpathSync(project))));
+  symlinkSync(outside, join(projects, sanitizePath(realpathSync.native(project))));
   const location = resolveMemoryLocation({ cwd: project, env: {}, home });
   assert.equal(location.ok, false);
   assert.equal(location.code, "SYMLINK_ESCAPE");

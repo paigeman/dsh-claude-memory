@@ -72,7 +72,7 @@ export function makeWorktree(mainRoot, worktreeRoot) {
 export function memoryPath(configHome, projectRoot, files = {}) {
   let root = projectRoot;
   try {
-    root = realpathSync(projectRoot);
+    root = realpathSync.native(projectRoot);
   } catch {
     // keep the supplied path when it does not exist yet
   }
