@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag; leave empty for a branch dry run
+        type: string
+        default: ""
+      dry_run:
+        description: Validate and pack without publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      ref: ${{ steps.plan.outputs.ref }}
+      sha: ${{ steps.plan.outputs.sha }}
+      dry_run: ${{ steps.plan.outputs.dry_run }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.16.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Validate release identity
+        id: plan
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          RELEASE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        run: node scripts/release.mjs plan
+
+  verify:
+    needs: plan
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.plan.outputs.sha }}
+
+  dry-run:
+    needs: [plan, verify]
+    if: needs.plan.outputs.dry_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.16.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: .agent-tmp/package/
+      - name: Verify npm publication without registry writes
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_REF: ${{ needs.plan.outputs.ref }}
+        run: node scripts/release.mjs dry-run
+
+  npm:
+    needs: [plan, verify]
+    if: needs.plan.outputs.dry_run != 'true' && vars.NPM_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.16.0
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: .agent-tmp/package/
+      - name: Publish the tested tarball using npm trusted publishing
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_REF: ${{ needs.plan.outputs.ref }}
+        run: node scripts/release.mjs publish
+
+  github:
+    needs: [plan, verify, npm]
+    if: >-
+      !cancelled() && needs.plan.outputs.dry_run != 'true' &&
+      needs.verify.result == 'success' &&
+      (needs.npm.result == 'success' || needs.npm.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.16.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: .agent-tmp/package/
+      - name: Verify downloaded package
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_REF: ${{ needs.plan.outputs.ref }}
+        run: node scripts/release.mjs verify
+      - name: Create release and upload immutable package assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          NPM_RESULT: ${{ needs.npm.result }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" > /dev/null 2> "$RUNNER_TEMP/release-error"; then
+            echo "Release already exists; retaining its notes."
+          elif grep -Eq 'HTTP 404|release not found' "$RUNNER_TEMP/release-error"; then
+            options=()
+            if [ "$PRERELEASE" = true ]; then options+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --verify-tag --generate-notes "${options[@]}"
+          else
+            cat "$RUNNER_TEMP/release-error" >&2
+            exit 1
+          fi
+          filename="$(node -p "JSON.parse(require('node:fs').readFileSync('.agent-tmp/package/release.json','utf8')).filename")"
+          assets="$(gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json assets --jq '.assets[].name')"
+          for name in "$filename" SHA256SUMS; do
+            if grep -qxF -- "$name" <<< "$assets"; then
+              gh release download "$RELEASE_TAG" --repo "$GH_REPO" --pattern "$name" --output "$RUNNER_TEMP/$name"
+              cmp "$RUNNER_TEMP/$name" ".agent-tmp/package/$name"
+            else
+              gh release upload "$RELEASE_TAG" ".agent-tmp/package/$name" --repo "$GH_REPO"
+            fi
+          done
+          if [ "$NPM_RESULT" = skipped ]; then
+            printf '%s\n' 'GitHub package release completed; npm publishing is disabled until account setup is complete.' >> "$GITHUB_STEP_SUMMARY"
+          fi
