@@ -37,8 +37,6 @@ pwd
 
 这个目录应当同时包含 `package.json`、`index.js` 和 `cordis.patch.yml`。复制 `pwd` 输出的绝对路径。
 
-项目只保留两份说明文档，英文为 `README.md`，中文为 `README.zh-CN.md`。源码、测试与开发配置都直接放在仓库根目录中。
-
 ### 在界面中安装
 
 1. 打开 DSH 的插件管理界面，进入本地插件安装入口。
@@ -214,91 +212,9 @@ dsh --profile tui --dump-config
 
 当前版本专注读取已有 Memory。创建、修改与删除记忆继续由 Claude Code 或你自己完成。
 
-## 开发与验证
+## 参与开发
 
-在仓库根目录操作。运行时代码使用 Node.js 20 及以上 API；CI 固定使用 Node.js 24.16.0，开发工具要求 `^22.22.0 || >=24.8.0`。
-
-```bash
-npm ci --ignore-scripts
-npm run format
-npm run check
-```
-
-`npm run check` 依次检查 Prettier 格式，运行 ESLint、Markdownlint、DSH 原生测试和安装包冒烟测试。原生测试使用固定版本的 DSH 0.2.1-rc.5 编码器与 LLM 库，模型适配器保持离线，不需要模型密钥。原生测试若有任何跳过，检查就会失败。
-
-`npm test` 适合较轻的日常检查，未设置 `DSH_SESSION_FORMAT_MODULE` 时会跳过原生调用链。需要验证本机 macOS 安装包时，可以运行下面的命令。
-
-```bash
-DSH_HOME="$PWD/.agent-tmp/native-dsh-home" \
-DSH_SESSION_FORMAT_MODULE='/Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-session-format-v3-to-v4/lib/index.js' \
-ELECTRON_RUN_AS_NODE=1 \
-'/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness' --test test/*.test.js
-```
-
-测试覆盖项目隔离、worktree、目录覆盖、符号链接边界、全量加载和分批完整性，也会检查源文件的字节、mtime 及持久化消息。打包测试会解开实际 `.tgz`，核对文件清单和插件入口，再从包内代码验证召回。真实模型的召回质量需要单独验收。
-
-## 流水线与版本发布
-
-[CI 流水线](https://github.com/paigeman/dsh-claude-memory/actions/workflows/ci.yml)检查格式、JavaScript、Markdown 和工作流语法，并在 Linux、macOS、Windows 上运行原生测试。成功后保留 `package-<run-id>` 构件七天，其中包含实际测试过的 `.tgz`、`SHA256SUMS` 和 `release.json`。完整源码保存在 Git 中，安装包只带运行文件和两份 README。
-
-[Release 流水线](https://github.com/paigeman/dsh-claude-memory/actions/workflows/release.yml)会复用这些检查。手动运行默认采用 dry run，可以直接验证 `main`，无需打标签，也不会向 npm 写入版本。
-
-```bash
-gh workflow run release.yml --repo paigeman/dsh-claude-memory --ref main -f dry_run=true
-```
-
-正式发布时，把 `package.json` 与 `package-lock.json` 改为同一版本，提交后推送对应标签。例如 `0.1.3` 对应 `v0.1.3`，标签与包版本不一致就会停止。`0.2.0-rc.1` 这类预发布版本使用 npm 的 `next` 标签，并创建 GitHub 预发布；稳定版使用 `latest`。
-
-```bash
-git tag v0.1.3
-git push origin v0.1.3
-```
-
-发布步骤会使用已测试的同一份压缩包，并核对摘要。GitHub Release 附件提供 `.tgz` 和 SHA-256 校验文件。重跑时允许已有内容完全相同，遇到内容冲突就停止，不会覆盖附件。npm 查询异常会中止发布；启用 npm 发布后，npm 步骤失败也会阻止 GitHub Release。
-
-### 首次启用 npm 发布
-
-公开包名采用 `dsh-claude-memory-reader`，首次发布仍需要维护者的 npm 账号。在完成设置前，通过本地源码安装，并保持仓库变量 `NPM_PUBLISH_ENABLED` 为 `false`。这时推送版本标签仍可创建供下载的 GitHub Release。
-
-1. [注册 npm 账号](https://www.npmjs.com/signup)，验证邮箱并开启双重验证。账号名可以与这个不带 scope 的包名不同。
-2. 先运行一次 Release dry run，下载成功运行的已验证构件。把 `<run-id>` 换成该次运行编号。
-
-   ```bash
-   gh run list --repo paigeman/dsh-claude-memory --workflow release.yml
-   gh run download <run-id> --repo paigeman/dsh-claude-memory --name package-<run-id> --dir .agent-tmp/bootstrap
-   cd .agent-tmp/bootstrap
-   shasum -a 256 -c SHA256SUMS
-   npm login --registry https://registry.npmjs.org
-   npm publish ./dsh-claude-memory-reader-0.1.3.tgz --ignore-scripts --access public --tag latest --registry https://registry.npmjs.org
-   ```
-
-   首次发布使用这份原始压缩包，账号需要有权申请这个包名。仓库不会替你占用 npm 名称，本地首次发布也不要求生成 CI 溯源证明。
-
-3. 在 npm 包的设置中添加 GitHub Actions [可信发布者](https://docs.npmjs.com/trusted-publishers/)，填写下表。
-
-   | 设置           | 内容                |
-   | -------------- | ------------------- |
-   | 组织或用户名   | `paigeman`          |
-   | 仓库           | `dsh-claude-memory` |
-   | 工作流文件名   | `release.yml`       |
-   | Environment    | `npm`               |
-   | 允许的发布命令 | 启用 `npm publish`  |
-
-   当前流程直接运行 `npm publish`。若只允许 `npm stage publish`，npm 会拒绝它。GitHub 不需要保存长期 npm Token，托管 runner 通过 OIDC 获得发布凭据并生成溯源证明。
-
-4. 保存可信发布者后，再开启自动发布。
-
-   ```bash
-   gh variable set NPM_PUBLISH_ENABLED --body true --repo paigeman/dsh-claude-memory
-   ```
-
-以后推送版本标签就会按该身份发布。首次版本若还需要补 GitHub Release，请给首次发布所用的同一提交打标签。流水线能识别内容相同的 npm 包；若文件已改变，递增版本后再发布。
-
-npm 上已有首次版本后，CLI 用户可以直接安装包名。
-
-```bash
-dsh plugin --profile tui add dsh-claude-memory-reader
-```
+开发检查和版本发布步骤见 [CONTRIBUTING.md](CONTRIBUTING.md)。日常安装使用无需执行这些操作。
 
 ## 兼容范围与来源
 
