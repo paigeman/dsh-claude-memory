@@ -1,6 +1,6 @@
 {
   "globs": ["**/*.md"],
-  "ignores": ["node_modules/**", ".agent-tmp/**", "coverage/**"],
+  "ignores": ["**/node_modules/**", ".agent-tmp/**", "coverage/**"],
   "config": {
     "default": true,
     "MD013": false,

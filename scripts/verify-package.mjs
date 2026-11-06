@@ -66,6 +66,7 @@ try {
   const published = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
   assert.equal(published.name, pkg.name);
   assert.equal(published.version, pkg.version);
+  assert.deepEqual(published.engines, pkg.engines);
   const patch = readFileSync(join(directory, "cordis.patch.yml"), "utf8");
   assert.ok(patch.includes(pkg.name), "Bundle patch must reference the published package name.");
   const { apply } = await import(pathToFileURL(join(directory, "index.js")).href);

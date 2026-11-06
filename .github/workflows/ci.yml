@@ -25,6 +25,8 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      dsh_versions: ${{ steps.compatibility.outputs.dsh_versions }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,6 +38,9 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run format:check
       - run: npm run lint
+      - name: Read the tested DSH versions
+        id: compatibility
+        run: echo "dsh_versions=$(node scripts/test-native.mjs --list)" >> "$GITHUB_OUTPUT"
       - name: Validate GitHub Actions workflows
         env:
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
@@ -48,13 +53,15 @@ jobs:
           "$RUNNER_TEMP/actionlint" -color
 
   native:
-    name: Native tests (${{ matrix.os }})
+    needs: quality
+    name: Native tests (DSH ${{ matrix.dsh }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        dsh: ${{ fromJSON(needs.quality.outputs.dsh_versions) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,7 +72,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - name: Run real DSH codec and request tests without skipped checks
-        run: npm run test:native
+        run: npm run test:native -- --version ${{ matrix.dsh }}
       - name: Smoke-test the packed plugin on this platform
         run: npm run verify:package
 

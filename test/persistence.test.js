@@ -135,68 +135,100 @@ test("legacy memory bodies are removed from requests while tool-call/result pair
 });
 
 test(
-  "transient redispatch uses the installed Cordis waterfall and native LLM envelope rules",
+  "native tool registration, recall and transient redispatch work with the selected DSH runtime",
   {
     skip: process.env.DSH_SESSION_FORMAT_MODULE ? false : "Requires the installed DSH runtime",
   },
   async (t) => {
-    const { project, configDir } = fixture(t);
     const modules = resolve(dirname(process.env.DSH_SESSION_FORMAT_MODULE), "../..");
-    const { Context } = await import(pathToFileURL(join(modules, "cordis/lib/index.js")).href);
+    const { Context } = await import(
+      pathToFileURL(process.env.DSH_CORDIS_MODULE ?? join(modules, "cordis/lib/index.js")).href
+    );
     const { LlmRuntime, markAgentLoopRequest, isAgentLoopRequest } = await import(
-      pathToFileURL(join(modules, "dsh-llm/lib/index.js")).href
+      pathToFileURL(process.env.DSH_LLM_MODULE ?? join(modules, "dsh-llm/lib/index.js")).href
     );
-    const events = new Context();
-    const dispatched = [];
-    const titleSnapshots = [];
-    const llm = Object.create(LlmRuntime.prototype);
-    llm.ctx = events;
-    llm.adapterStream = (options) =>
-      (async function* () {
-        dispatched.push(options);
-        yield { type: "finish", reason: { kind: "stop" } };
-      })();
-    const fake = fakeCtx();
-    const ctx = { ...fake.ctx, llm, on: events.on.bind(events) };
-    apply(ctx, { configDir });
-    t.after(() => fake.dispose());
-    events.on(
-      "llm/stream",
-      (options, next) => {
-        if (isAgentLoopRequest(options)) titleSnapshots.push(options.messages);
-        return next();
-      },
-      { prepend: true },
+    const { ToolRuntime } = await import(
+      pathToFileURL(process.env.DSH_TOOLS_MODULE ?? join(modules, "dsh-tools/lib/index.js")).href
     );
-    const agent = fakeAgent(project);
-    const signal = new AbortController().signal;
-    const messages = Object.freeze([userMessage("请加载 memory")]);
-    const decision = await events.waterfall(
-      "agent/pre-step",
-      { agent, messages, signal },
-      async () => ({ kind: "enter", messages }),
-    );
-    const config = { provider: "diagnostic", model: "diagnostic" };
-    await events.waterfall("agent/request", { agent, signal }, async () => config);
-    const original = markAgentLoopRequest(
-      Object.freeze({
-        ...config,
-        signal,
-        sessionId: agent.session.id,
-        messages: decision.messages,
-        toolHistory: [],
-      }),
-    );
-    const chunks = [];
-    for await (const chunk of llm.stream(original)) chunks.push(chunk);
-    assert.deepEqual(chunks, [{ type: "finish", reason: { kind: "stop" } }]);
-    assert.equal(dispatched.length, 1);
-    assert.equal(dispatched[0].signal, signal);
-    assert.equal(dispatched[0].toolHistory, original.toolHistory);
-    assert.ok(JSON.stringify(dispatched[0]).includes(topicSecret));
-    assert.equal(titleSnapshots.length, 1);
-    assert.ok(!JSON.stringify(titleSnapshots).includes(indexSecret));
-    assert.ok(!JSON.stringify(titleSnapshots).includes(topicSecret));
-    assert.ok(!JSON.stringify(original).includes(topicSecret));
+    for (const scenario of [
+      { name: "automatic index", prompt: "Review the build", topic: false },
+      { name: "tool recall", prompt: "Review the build", action: "recall", topic: true },
+      { name: "explicit full recall", prompt: "请加载 memory", topic: true },
+    ]) {
+      await t.test(scenario.name, async (t) => {
+        const { project, configDir, memoryDir } = fixture(t);
+        const before = treeSnapshot(memoryDir);
+        const events = new Context();
+        t.after(() => events.fiber.dispose());
+        // Only the host's prompt composer and model adapter are synthetic;
+        // registration, schema projection, middleware and envelopes are native.
+        events.provide("systemPrompt", { tools() {} });
+        new ToolRuntime(events);
+        const dispatched = [];
+        const titleSnapshots = [];
+        const llm = Object.create(LlmRuntime.prototype);
+        llm.ctx = events;
+        llm.adapterStream = (options) =>
+          (async function* () {
+            dispatched.push(options);
+            yield { type: "finish", reason: { kind: "stop" } };
+          })();
+        events.provide("llm", llm);
+        apply(events, { configDir });
+        assert.deepEqual(
+          events.tools.schemas().map((tool) => tool.name),
+          ["claude_code_memory"],
+        );
+        events.on(
+          "llm/stream",
+          (options, next) => {
+            if (isAgentLoopRequest(options)) titleSnapshots.push(options.messages);
+            return next();
+          },
+          { prepend: true },
+        );
+        const agent = fakeAgent(project);
+        const signal = new AbortController().signal;
+        if (scenario.action) {
+          const receipt = await events.tools
+            .get("claude_code_memory")
+            .execute({ action: scenario.action, files: ["build.md"] }, { agent, signal });
+          assert.match(receipt.text, /Complete: yes/);
+          assert.ok(!receipt.text.includes(indexSecret));
+          assert.ok(!receipt.text.includes(topicSecret));
+        }
+        const messages = Object.freeze([userMessage(scenario.prompt)]);
+        const decision = await events.waterfall(
+          "agent/pre-step",
+          { agent, messages, signal },
+          async () => ({ kind: "enter", messages }),
+        );
+        const config = { provider: "diagnostic", model: "diagnostic" };
+        await events.waterfall("agent/request", { agent, signal }, async () => config);
+        const original = markAgentLoopRequest(
+          Object.freeze({
+            ...config,
+            signal,
+            sessionId: agent.session.id,
+            messages: decision.messages,
+            toolHistory: [],
+          }),
+        );
+        const chunks = [];
+        for await (const chunk of llm.stream(original)) chunks.push(chunk);
+        assert.deepEqual(chunks, [{ type: "finish", reason: { kind: "stop" } }]);
+        assert.equal(dispatched.length, 1);
+        assert.equal(dispatched[0].signal, signal);
+        assert.equal(dispatched[0].toolHistory, original.toolHistory);
+        assert.ok(JSON.stringify(dispatched[0]).includes(indexSecret));
+        assert.equal(JSON.stringify(dispatched[0]).includes(topicSecret), scenario.topic);
+        assert.equal(titleSnapshots.length, 1);
+        assert.ok(!JSON.stringify(titleSnapshots).includes(indexSecret));
+        assert.ok(!JSON.stringify(titleSnapshots).includes(topicSecret));
+        assert.ok(!JSON.stringify(original).includes(indexSecret));
+        assert.ok(!JSON.stringify(original).includes(topicSecret));
+        assert.deepEqual(treeSnapshot(memoryDir), before);
+      });
+    }
   },
 );

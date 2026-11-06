@@ -4,7 +4,7 @@
 
 Read your project's existing Claude Code or Claude Code Desktop Auto Memory from DeepSeek Harness (DSH). The plugin supplies a bounded `MEMORY.md` index, then lets the model recall topic files when the task needs them. An explicit request such as “load all memories” starts a full, budgeted recall.
 
-Version 0.1.4 targets DSH 0.2.1-rc.5. CI exercises the pinned DSH libraries and packed plugin on Linux, macOS, and Windows. Desktop installation has been checked on macOS. A real-model conversation has not yet been validated end to end; Desktop installation and real-model behavior on other systems still need separate verification.
+Version 0.1.5 supports DSH 0.2.1-rc.5 and 0.2.2-rc.1 with the same plugin code. The CI matrix exercises each version's pinned DSH and Cordis libraries and the packed plugin on Linux, macOS, and Windows. Native tests cover compatibility checks, tool registration, recall, request injection, and V4 encoding. Real-model recall has also passed automated acceptance in the macOS DSH 0.2.2-rc.1 Desktop Host; other Desktop versions and platforms still need separate end-to-end verification.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ dsh plugin --profile tui add dsh-claude-memory-reader
 dsh --profile tui --dump-config
 ```
 
-Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. To choose a specific release, use a versioned spec such as `dsh-claude-memory-reader@0.1.4`.
+Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. To choose a specific release, use a versioned spec such as `dsh-claude-memory-reader@0.1.5`.
 
 Desktop reserves its `desktop` profile for application-managed installation. A standalone CLI distribution may reject access to that profile; use the Desktop plugin manager for it.
 
@@ -206,6 +206,12 @@ File symlinks escaping the memory directory are rejected. Symlinked subdirectori
 
 ## Troubleshooting
 
+### The plugin becomes incompatible after updating DSH
+
+Compare the installed plugin and DSH versions with the [support table](#supported-dsh-versions). Plugin 0.1.4 declares only DSH 0.2.1-rc.5, so DSH 0.2.2-rc.1 refuses to activate it even when the Memory directory exists. Reinstalling the same plugin version does not change that requirement.
+
+Update to a compatible published plugin release, or install compatible local source. Enable its component, then open a project conversation and run [First check](#first-check). Changing `engines.dsh` without testing the corresponding runtime does not establish compatibility.
+
 ### Memory cannot be found
 
 Call `status` and inspect the effective working directory. A common parent of several repositories is treated as its own non-Git project. Start the conversation inside the intended repository, or set a verified `memoryDir`.
@@ -230,7 +236,22 @@ This version reads existing memory. Use Claude Code or edit its files yourself t
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, checks, and pull request guidance.
 
+For local development with Desktop open and signed in, `npm run test:desktop` installs or refreshes the separate development reader when needed and runs real-model recall checks. Commands such as `npm run desktop -- use dev` and `npm run desktop -- use stable` switch the active reader while retaining both installed packages. See [Desktop acceptance](CONTRIBUTING.md#validate-in-dsh-desktop) for prerequisites and retained reports. These development tools are not included in the published plugin.
+
 ## Compatibility and sources
+
+### Supported DSH versions
+
+| Plugin release        | Supported DSH versions    |
+| --------------------- | ------------------------- |
+| 0.1.4                 | 0.2.1-rc.5                |
+| 0.1.5 (this checkout) | 0.2.1-rc.5 and 0.2.2-rc.1 |
+
+DSH 0.2.1-rc.5 is the support baseline. Keep one plugin release line for the current and previous tested DSH generations while their public interfaces remain compatible. This does not promise support for every intervening or future build. The published `engines.dsh` lists tested versions explicitly; adding a version requires its own native test workspace and passing CI.
+
+An ordinary DSH update should extend this support table and the existing release line. Separate maintenance branches are reserved for an incompatible interface that cannot reasonably share the implementation. If support must end, document the last compatible plugin release and the removed DSH version in the new release. See [Contributing](CONTRIBUTING.md#maintain-dsh-compatibility) for the update procedure.
+
+### Path resolution sources
 
 Path handling references locally available reverse-engineered Claude Code 2.1.x source and repository fixtures. It has not been verified against every official release. The index limit is 200 lines or 25000 JavaScript characters, which differs from the official documentation's 25KB byte limit. Nested `.md` files are included in this plugin's explicit full recall.
 

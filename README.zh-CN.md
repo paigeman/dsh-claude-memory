@@ -6,7 +6,7 @@
 
 插件运行时只读。它先提供 `MEMORY.md` 索引，再让模型按任务调用 `claude_code_memory` 读取相关主题。你也可以直接说“请加载 memory”，要求加载当前项目的全部有效记忆。
 
-当前版本为 0.1.4，兼容目标是 DSH 0.2.1-rc.5。CI 会在 Linux、macOS、Windows 上验证固定版本的 DSH 库和打包后的插件。Desktop 安装流程已在 macOS 检查过，真实模型对话的端到端验收仍待完成。其他系统的 Desktop 安装和真实模型表现仍需另行验收。
+当前版本为 0.1.5，同一份插件代码支持 DSH 0.2.1-rc.5 和 0.2.2-rc.1。CI 矩阵会在 Linux、macOS、Windows 上分别验证各版本固定的 DSH、Cordis 库和打包后的插件。原生测试覆盖兼容性检查、工具注册、记忆召回、请求注入及 V4 编码。macOS 的 DSH 0.2.2-rc.1 Desktop Host 已通过真实模型自动验收，其他 Desktop 版本和系统仍需单独验证。
 
 ## 安装前准备
 
@@ -48,7 +48,7 @@ dsh plugin --profile tui add dsh-claude-memory-reader
 dsh --profile tui --dump-config
 ```
 
-在输出的组件配置中检查 `id: claude-memory` 和 `name: 'dsh-claude-memory-reader'`。需要指定版本时，可以使用 `dsh-claude-memory-reader@0.1.4` 这样的版本号写法。
+在输出的组件配置中检查 `id: claude-memory` 和 `name: 'dsh-claude-memory-reader'`。需要指定版本时，可以使用 `dsh-claude-memory-reader@0.1.5` 这样的版本号写法。
 
 Desktop 的 `desktop` profile 由应用保留管理，使用上面的插件管理界面安装；普通 CLI 发行版可能拒绝操作它。
 
@@ -208,6 +208,12 @@ dsh --profile tui --dump-config
 
 ## 常见问题
 
+### 更新 DSH 后提示插件不兼容
+
+先对照[支持版本表](#支持的-dsh-版本)检查插件和 DSH 的版本。插件 0.1.4 只声明支持 DSH 0.2.1-rc.5，DSH 0.2.2-rc.1 会拒绝激活它，即使 Memory 目录存在也不会召回。重装同一插件版本不会改变这个限制。
+
+更新到已发布的兼容插件版本，或安装已兼容的本地源码。启用组件后，在项目会话中执行[第一次使用](#第一次使用)的检查。只改 `engines.dsh`、没有测试对应运行时，不能证明兼容。
+
 ### 找不到当前项目的 Memory
 
 先调用 `status` 检查 DSH 的有效工作目录。多个仓库的公共父目录会被当作独立的非 Git 项目，不会猜测你想使用哪个子仓库。在目标仓库中新建对话，或明确配置已经核对过的 `memoryDir`。
@@ -232,7 +238,22 @@ dsh --profile tui --dump-config
 
 开发环境、检查命令和提交 PR 的说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+本地开发时，保持桌面端已打开并登录，在仓库目录运行 `npm run test:desktop`，即可按需安装或刷新独立开发包并执行真实模型召回验收。`npm run desktop -- use dev` 和 `npm run desktop -- use stable` 可以在两个已安装包之间切换启用状态。前提条件、报告位置及完整流程见[桌面验收说明](CONTRIBUTING.md#validate-in-dsh-desktop)。这些开发工具不包含在正式发布的插件包中。
+
 ## 兼容范围与来源
+
+### 支持的 DSH 版本
+
+| 插件 release      | 支持的 DSH 版本        |
+| ----------------- | ---------------------- |
+| 0.1.4             | 0.2.1-rc.5             |
+| 0.1.5（当前源码） | 0.2.1-rc.5、0.2.2-rc.1 |
+
+支持基线从 DSH 0.2.1-rc.5 开始。在公共接口仍可共用的前提下，用同一条插件发布线维护当前和上一代已验证的 DSH，不承诺覆盖中间及未来的所有构建。发布包的 `engines.dsh` 明确列出已测试版本；新增版本必须有独立的原生测试 workspace 并通过 CI。
+
+普通 DSH 更新沿用现有插件发布线，扩展支持表即可。只有接口不兼容、难以共用实现时，才单独维护旧分支。需要停止支持时，在新 release 中明确写出移除的 DSH 版本及其最后可用的插件 release。维护步骤见[贡献指南](CONTRIBUTING.md#maintain-dsh-compatibility)。
+
+### 路径解析来源
 
 路径处理参考本机可读的 Claude Code 2.1.x 逆向重建源码，并用本仓库测试验证；这不等于所有官方发行版都已验证。索引读取上限为 200 行或 25000 个 JavaScript 字符，字符计量与官方文档所述的 25KB 并不完全相同。嵌套 `.md` 文件也会纳入本插件的显式全量召回。
 
