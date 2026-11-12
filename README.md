@@ -4,7 +4,7 @@
 
 Read your project's existing Claude Code or Claude Code Desktop Auto Memory from DeepSeek Harness (DSH). The plugin supplies a bounded `MEMORY.md` index, then lets the model recall topic files when the task needs them. An explicit request such as “load all memories” starts a full, budgeted recall.
 
-Version 0.1.5 supports DSH 0.2.1-rc.5 and 0.2.2-rc.1 with the same plugin code. The CI matrix exercises each version's pinned DSH and Cordis libraries and the packed plugin on Linux, macOS, and Windows. Native tests cover compatibility checks, tool registration, recall, request injection, and V4 encoding. Real-model recall has also passed automated acceptance in the macOS DSH 0.2.2-rc.1 Desktop Host; other Desktop versions and platforms still need separate end-to-end verification.
+Version 0.1.6 supports DSH 0.2.1-rc.5, 0.2.2-rc.1, and 0.2.2-rc.2 with the same plugin code. The CI matrix exercises each version's pinned DSH and Cordis libraries and the packed plugin on Linux, macOS, and Windows. Native tests cover compatibility checks, tool registration, recall, request injection, and V4 encoding. Real-model recall has also passed automated acceptance in the macOS DSH 0.2.2-rc.1 and 0.2.2-rc.2 Desktop Hosts. Other Desktop versions and platforms still need separate end-to-end verification.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ dsh plugin --profile tui add dsh-claude-memory-reader
 dsh --profile tui --dump-config
 ```
 
-Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. To choose a specific release, use a versioned spec such as `dsh-claude-memory-reader@0.1.5`.
+Check for `id: claude-memory` and `name: 'dsh-claude-memory-reader'` in the resulting configuration. To choose a specific release, use a versioned spec such as `dsh-claude-memory-reader@0.1.6`.
 
 Desktop reserves its `desktop` profile for application-managed installation. A standalone CLI distribution may reject access to that profile; use the Desktop plugin manager for it.
 
@@ -208,7 +208,7 @@ File symlinks escaping the memory directory are rejected. Symlinked subdirectori
 
 ### The plugin becomes incompatible after updating DSH
 
-Compare the installed plugin and DSH versions with the [support table](#supported-dsh-versions). Plugin 0.1.4 declares only DSH 0.2.1-rc.5, so DSH 0.2.2-rc.1 refuses to activate it even when the Memory directory exists. Reinstalling the same plugin version does not change that requirement.
+Compare the installed plugin and DSH versions with the [support table](#supported-dsh-versions). Plugin 0.1.4 declares only DSH 0.2.1-rc.5, so DSH 0.2.2-rc.1 refuses to activate it even when the Memory directory exists. Plugin 0.1.5 supports DSH through 0.2.2-rc.1, and DSH 0.2.2-rc.2 requires plugin 0.1.6. Reinstalling the same incompatible plugin version keeps its existing engine requirements.
 
 Update to a compatible published plugin release, or install compatible local source. Enable its component, then open a project conversation and run [First check](#first-check). Changing `engines.dsh` without testing the corresponding runtime does not establish compatibility.
 
@@ -242,10 +242,11 @@ For local development with Desktop open and signed in, `npm run test:desktop` in
 
 ### Supported DSH versions
 
-| Plugin release        | Supported DSH versions    |
-| --------------------- | ------------------------- |
-| 0.1.4                 | 0.2.1-rc.5                |
-| 0.1.5 (this checkout) | 0.2.1-rc.5 and 0.2.2-rc.1 |
+| Plugin release        | Supported DSH versions                 |
+| --------------------- | -------------------------------------- |
+| 0.1.4                 | 0.2.1-rc.5                             |
+| 0.1.5                 | 0.2.1-rc.5 and 0.2.2-rc.1              |
+| 0.1.6 (this checkout) | 0.2.1-rc.5, 0.2.2-rc.1, and 0.2.2-rc.2 |
 
 DSH 0.2.1-rc.5 is the support baseline. Keep one plugin release line for the current and previous tested DSH generations while their public interfaces remain compatible. This does not promise support for every intervening or future build. The published `engines.dsh` lists tested versions explicitly; adding a version requires its own native test workspace and passing CI.
 

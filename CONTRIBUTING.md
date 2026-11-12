@@ -52,7 +52,7 @@ To inspect the matrix or run one supported version while developing, use the fol
 
 ```bash
 node scripts/test-native.mjs --list
-npm run test:native -- --version 0.2.2-rc.1
+npm run test:native -- --version 0.2.2-rc.2
 ```
 
 When changing behavior, add a regression test that exercises the affected case. Use synthetic Memory fixtures. Preserve the plugin's read-only behavior, project isolation, and exclusion of Memory bodies from durable plugin messages and tool results. If a change affects installation or configuration, update both READMEs.
@@ -68,7 +68,7 @@ To add a supported DSH version:
 3. Add that exact DSH version to `engines.dsh` using `||`, then update the lockfile with `npm install --ignore-scripts`. Do not replace the old workspace when adding support.
 4. Run `npm run check`, update the support tables in both READMEs, and bump the plugin version for publication. CI derives its OS-by-DSH matrix from these workspaces automatically.
 
-The compatibility regression tests require the engine declaration and test matrix to agree. They also reproduce the 0.1.4 rejection on DSH 0.2.2-rc.1 using DSH's own compatibility checker. Keep release candidates explicit: broad ranges can admit untested builds, especially when a caller enables [prerelease matching](https://github.com/npm/node-semver#prerelease-tags).
+The compatibility regression tests require the engine declaration and test matrix to agree. They also reproduce the 0.1.4 rejection on DSH 0.2.2-rc.1 and the 0.1.5 rejection on DSH 0.2.2-rc.2 using DSH's own compatibility checker. List each tested release candidate explicitly so the declaration admits only verified builds, including when callers enable [prerelease matching](https://github.com/npm/node-semver#prerelease-tags).
 
 Removing a supported version must be an explicit release decision. Update its workspace, engine declaration, and support table together, and identify the last compatible plugin release. Do not drop the baseline silently just because a newer DSH version appears.
 
@@ -88,7 +88,7 @@ Acceptance uses the Desktop's real configured model and normal model quota. It c
 
 Reports, synthetic fixtures, candidate packages, and profile backups remain under `.agent-tmp/desktop-control`. Test conversations remain in DSH history. The command exits with a failure when a model answer, tool receipt, transient-context check, or restoration check fails. It does not replace `npm run check`, which remains the offline CI path.
 
-The Desktop control adapter has been exercised on macOS with DSH 0.2.2-rc.1. Its HMR callback boundary is checked explicitly and refuses an unsupported implementation. Other Desktop versions and operating systems still require their own real acceptance run. macOS finds the bundled Desktop CLI automatically; set `DSH_DESKTOP_CLI` to the bundled launcher if the installation is elsewhere.
+The Desktop control adapter has been exercised on macOS with DSH 0.2.2-rc.1 and 0.2.2-rc.2. Its HMR callback boundary is checked explicitly and refuses an unsupported implementation. Other Desktop versions and operating systems still require their own real acceptance run. macOS finds the bundled Desktop CLI automatically. Set `DSH_DESKTOP_CLI` to the bundled launcher if the installation is elsewhere.
 
 For ordinary development, these commands switch readers or inspect the connection without uninstalling either package:
 

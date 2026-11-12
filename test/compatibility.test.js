@@ -12,7 +12,7 @@ const unverifiedVersions = [
   "0.2.1-rc.6",
   "0.2.1",
   "0.2.2-rc.0",
-  "0.2.2-rc.2",
+  "0.2.2-rc.3",
   "0.2.2",
   "0.2.3-rc.1",
   "0.3.0",
@@ -51,5 +51,12 @@ test(
     const previous = { ...pkg, version: "0.1.4", engines: { ...pkg.engines, dsh: "0.2.1-rc.5" } };
     assert.equal(evaluatePluginCompatibility(previous, {}, "0.2.1-rc.5"), undefined);
     assert.equal(evaluatePluginCompatibility(previous, {}, "0.2.2-rc.1").exempted, false);
+    const prior = {
+      ...pkg,
+      version: "0.1.5",
+      engines: { ...pkg.engines, dsh: "0.2.1-rc.5 || 0.2.2-rc.1" },
+    };
+    assert.equal(evaluatePluginCompatibility(prior, {}, "0.2.2-rc.1"), undefined);
+    assert.equal(evaluatePluginCompatibility(prior, {}, "0.2.2-rc.2").exempted, false);
   },
 );
