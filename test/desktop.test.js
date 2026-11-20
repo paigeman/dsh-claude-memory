@@ -1,21 +1,29 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   DEV_PACKAGE,
   STABLE_PACKAGE,
   assertIdle,
+  disposeTestSession,
   outsideReload,
   switchReader,
   verifyCase,
   withDevelopmentReader,
 } from "../scripts/desktop-control.mjs";
 import { controlPatch } from "../scripts/desktop.mjs";
+import { cleanup, makeTemp, writeFile } from "./helpers.js";
 
 function context() {
   const rows = [
     { entryId: "stable", moduleName: STABLE_PACKAGE, enabled: true },
     { entryId: "dev", moduleName: DEV_PACKAGE, enabled: false },
+  ];
+  const bundles = [
+    { name: STABLE_PACKAGE, enabled: true, installed: true },
+    { name: DEV_PACKAGE, enabled: false, installed: true },
   ];
   const entry = {
     id: "dev",
@@ -25,6 +33,7 @@ function context() {
   const changes = [];
   return {
     rows,
+    bundles,
     entry,
     changes,
     agents: { list: () => [] },
@@ -32,14 +41,29 @@ function context() {
       entries: () => [entry],
     },
     pluginManager: {
+      async listBundles() {
+        return structuredClone(bundles);
+      },
       async listPlugins() {
-        return structuredClone(rows);
+        return rows
+          .filter((row) =>
+            bundles.some(
+              (bundle) => bundle.name === row.moduleName && bundle.enabled && !bundle.error,
+            ),
+          )
+          .map((row) => ({ ...row, fiberPhase: row.enabled ? "active" : "disabled" }));
+      },
+      async setBundleEnabled(name, enabled) {
+        bundles.find((bundle) => bundle.name === name).enabled = enabled;
+        changes.push([`bundle:${name}`, enabled]);
+        if (enabled) assert.equal(bundles.filter((bundle) => bundle.enabled).length, 1);
+        return { application: "applied" };
       },
       async setPluginEnabled(id, enabled) {
         rows.find((row) => row.entryId === id).enabled = enabled;
         changes.push([id, enabled]);
         entry.options.config = structuredClone(persistedConfig);
-        assert.ok(rows.filter((row) => row.enabled).length <= 1);
+        assert.ok((await this.listPlugins()).filter((row) => row.enabled).length <= 1);
         return { application: "applied" };
       },
     },
@@ -51,11 +75,15 @@ test("Desktop reader switching disables the old reader before enabling the other
   await switchReader(ctx, "dev");
   assert.deepEqual(ctx.changes, [
     ["stable", false],
+    [`bundle:${STABLE_PACKAGE}`, false],
+    [`bundle:${DEV_PACKAGE}`, true],
     ["dev", true],
   ]);
   await switchReader(ctx, "stable");
-  assert.deepEqual(ctx.changes.slice(-2), [
+  assert.deepEqual(ctx.changes.slice(-4), [
     ["dev", false],
+    [`bundle:${DEV_PACKAGE}`, false],
+    [`bundle:${STABLE_PACKAGE}`, true],
     ["stable", true],
   ]);
   await assert.rejects(switchReader(ctx, "unknown"));
@@ -82,11 +110,39 @@ test("Desktop acceptance restores reader state after failure without changing it
   assert.deepEqual(ctx.entry.options.config, config);
   assert.equal(ctx.rows[0].enabled, true);
   assert.equal(ctx.rows[1].enabled, false);
+  assert.deepEqual(
+    ctx.bundles.map((bundle) => bundle.enabled),
+    [true, false],
+  );
+});
+
+test("Desktop acceptance leaves development off and clears an incompatible stable selection", async () => {
+  const ctx = context();
+  ctx.bundles[0].error = { code: "incompatible-version" };
+  ctx.bundles[1].enabled = true;
+  ctx.rows[1].enabled = true;
+  let final;
+  await withDevelopmentReader(
+    ctx,
+    async () => {
+      assert.deepEqual(
+        ctx.bundles.map((bundle) => bundle.enabled),
+        [false, true],
+      );
+    },
+    (state) => (final = state),
+  );
+  assert.deepEqual(
+    final.bundles.map((bundle) => bundle.enabled),
+    [false, false],
+  );
+  assert.deepEqual(final.readers, []);
+  assert.equal(ctx.rows[1].enabled, false);
 });
 
 test("a failed Desktop activation restores the previous reader", async () => {
   const ctx = context();
-  const change = ctx.pluginManager.setPluginEnabled;
+  const change = ctx.pluginManager.setPluginEnabled.bind(ctx.pluginManager);
   ctx.pluginManager.setPluginEnabled = async (id, enabled) => {
     if (id === "dev" && enabled) return { application: "failed" };
     return change(id, enabled);
@@ -94,6 +150,58 @@ test("a failed Desktop activation restores the previous reader", async () => {
   await assert.rejects(switchReader(ctx, "dev"), /did not apply/);
   assert.equal(ctx.rows[0].enabled, true);
   assert.equal(ctx.rows[1].enabled, false);
+  assert.deepEqual(
+    ctx.bundles.map((bundle) => bundle.enabled),
+    [true, false],
+  );
+});
+
+test("Desktop session cleanup drains the owned Agent and deletes only its verified log", async (t) => {
+  const project = makeTemp();
+  t.after(() => cleanup(project));
+  const sessionId = "owned";
+  const path = writeFile(join(project, "owned.jsonl"), "test session");
+  const otherPath = writeFile(join(project, "other.jsonl"), "a different session");
+  const notices = [];
+  let active = true;
+  const persistence = {
+    async stat(id) {
+      assert.equal(active, false);
+      assert.equal(id, sessionId);
+      if (existsSync(path))
+        return { header: { id, cwd: project }, location: { kind: "jsonl", path } };
+    },
+  };
+  const agent = { id: sessionId, ctx: { get: () => persistence } };
+  const ctx = {
+    agents: { get: () => (active ? agent : undefined) },
+    emit: (...args) => notices.push(args),
+    sessionController: {
+      async list() {
+        return { items: [{ sessionId: "other" }] };
+      },
+    },
+  };
+  const handle = {
+    agent,
+    dispose: async () => {
+      active = false;
+    },
+  };
+  await assert.rejects(
+    disposeTestSession(ctx, { sessionId, project: join(project, "different"), handle }),
+    /belongs to another project/,
+  );
+  assert.equal(existsSync(path), true);
+  assert.deepEqual(notices, []);
+  active = true;
+  assert.deepEqual(await disposeTestSession(ctx, { sessionId, project, handle }), {
+    sessionId,
+    deleted: true,
+  });
+  assert.equal(existsSync(path), false);
+  assert.equal(existsSync(otherPath), true);
+  assert.deepEqual(notices, [["api-session/removed", sessionId]]);
 });
 
 test("Desktop acceptance requires both a hidden model answer and observed transient context", () => {

@@ -52,7 +52,7 @@ To inspect the matrix or run one supported version while developing, use the fol
 
 ```bash
 node scripts/test-native.mjs --list
-npm run test:native -- --version 0.2.2-rc.3
+npm run test:native -- --version 0.2.2-rc.5
 ```
 
 When changing behavior, add a regression test that exercises the affected case. Use synthetic Memory fixtures. Preserve the plugin's read-only behavior, project isolation, and exclusion of Memory bodies from durable plugin messages and tool results. If a change affects installation or configuration, update both READMEs.
@@ -68,7 +68,7 @@ To add a supported DSH version:
 3. Add that exact DSH version to `engines.dsh` using `||`, then update the lockfile with `npm install --ignore-scripts`. Do not replace the old workspace when adding support.
 4. Run `npm run check`, update the support tables in both READMEs, and bump the plugin version for publication. CI derives its OS-by-DSH matrix from these workspaces automatically.
 
-The compatibility regression tests require the engine declaration and test matrix to agree. They also reproduce the 0.1.4, 0.1.5, and 0.1.6 rejections on subsequent DSH releases using DSH's own compatibility checker. List each tested release candidate explicitly so the declaration admits only verified builds, including when callers enable [prerelease matching](https://github.com/npm/node-semver#prerelease-tags).
+The compatibility regression tests require the engine declaration and test matrix to agree. They also reproduce the 0.1.4 through 0.1.7 rejections on subsequent DSH releases using DSH's own compatibility checker. List each tested release candidate explicitly so the declaration admits only verified builds, including when callers enable [prerelease matching](https://github.com/npm/node-semver#prerelease-tags).
 
 Removing a supported version must be an explicit release decision. Update its workspace, engine declaration, and support table together, and identify the last compatible plugin release. Do not drop the baseline silently just because a newer DSH version appears.
 
@@ -80,15 +80,15 @@ Keep DSH Desktop open, signed in, and idle, then run this from the checkout:
 npm run test:desktop
 ```
 
-The command prepares and installs a local private `dsh-claude-memory-reader-dev` package when its runtime files, bundle settings, or compatibility declaration are stale. It also connects a development-only control component to the existing Desktop Host. Both packages can remain installed; the development reader starts disabled, and the controller enables at most one reader at a time. The formal package is not replaced or published by this command.
+The command prepares and installs a local private `dsh-claude-memory-reader-dev` package when its runtime files, bundle settings, or compatibility declaration are stale. It also connects a development-only control component to the existing Desktop Host. The controller verifies that at most one reader is enabled at both the bundle and component levels.
 
 The control component is referenced by an owned block in the Desktop profile's `cordis.patch.yml`; the rest of that file is preserved and backed up. It accepts requests through an owner-only directory under `.agent-tmp/desktop-control`, and uses DSH's own plugin manager and Session controller. It opens no HTTP listener and does not copy account credentials. Keep this checkout in place while using the control component.
 
-Acceptance uses the Desktop's real configured model and normal model quota. It creates synthetic Git projects, project-local memory settings, and random probe values, then checks automatic indexing, focused recall, full recall, recall after plugin reload, and project isolation. Probes are absent from user prompts; success requires both the model's correct answer and an observed transient memory block. Test Agents can call only `claude_code_memory`. The original reader selection is restored after success or an ordinary failure. Running unrelated conversations cause the test to refuse before switching readers.
+Acceptance uses the Desktop's real configured model and normal model quota. It creates synthetic Git projects, project-local memory settings, and random probe values, then checks automatic indexing, focused recall, full recall, recall after plugin reload, and project isolation. Probes are absent from user prompts; success requires both the model's correct answer and an observed transient memory block. Test Agents can call only `claude_code_memory`. Running unrelated conversations block the run before it switches readers.
 
-Reports, synthetic fixtures, candidate packages, and profile backups remain under `.agent-tmp/desktop-control`. Test conversations remain in DSH history. The command exits with a failure when a model answer, tool receipt, transient-context check, or restoration check fails. It does not replace `npm run check`, which remains the offline CI path.
+After success or failure, the runner stops the Agents it created and removes their conversations from DSH history. It turns off the development bundle and component, then restores the compatible stable reader if it was selected before the run. The report records session deletion and final reader states. It remains under `.agent-tmp/desktop-control` alongside the synthetic fixtures, candidate packages, and profile backups. A failed check or cleanup step fails the command. `npm run check` remains the offline CI path.
 
-The Desktop control adapter has been exercised on macOS with DSH 0.2.2-rc.1, 0.2.2-rc.2, and 0.2.2-rc.3. Its HMR callback boundary is checked explicitly and refuses an unsupported implementation. Other Desktop versions and operating systems still require their own real acceptance run. macOS finds the bundled Desktop CLI automatically. Set `DSH_DESKTOP_CLI` to the bundled launcher if the installation is elsewhere.
+The Desktop control adapter has been exercised on macOS with DSH 0.2.2-rc.1, 0.2.2-rc.2, 0.2.2-rc.3, and 0.2.2-rc.5. Its HMR callback boundary is checked explicitly and refuses an unsupported implementation. Other Desktop versions and operating systems still require their own real acceptance run. macOS finds the bundled Desktop CLI automatically. Set `DSH_DESKTOP_CLI` to the bundled launcher if the installation is elsewhere.
 
 For ordinary development, these commands switch readers or inspect the connection without uninstalling either package:
 

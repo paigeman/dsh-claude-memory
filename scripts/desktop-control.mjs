@@ -9,6 +9,7 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
+  unlinkSync,
   watch,
   writeFileSync,
 } from "node:fs";
@@ -22,6 +23,7 @@ export const name = "claude-memory-desktop-control";
 export const inject = ["pluginManager", "sessionController", "agents", "tools", "llm", "loader"];
 export const STABLE_PACKAGE = "dsh-claude-memory-reader";
 export const DEV_PACKAGE = "dsh-claude-memory-reader-dev";
+const readerPackages = { stable: STABLE_PACKAGE, dev: DEV_PACKAGE };
 const root = realpathSync(dirname(dirname(fileURLToPath(import.meta.url))));
 const requestIdPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 
@@ -91,6 +93,34 @@ async function readers(ctx) {
     }));
 }
 
+async function readerState(ctx) {
+  const bundles = (await ctx.pluginManager.listBundles())
+    .filter((bundle) => [STABLE_PACKAGE, DEV_PACKAGE].includes(bundle.name))
+    .map(({ name, enabled, installed, version, source, error }) => ({
+      name,
+      enabled,
+      installed,
+      version,
+      source,
+      error: error?.code,
+    }));
+  return { bundles, readers: await readers(ctx) };
+}
+
+export function readerSelection(state, targets = ["stable", "dev"]) {
+  for (const target of targets) {
+    const name = readerPackages[target];
+    const bundle = state.bundles.find((bundle) => bundle.name === name);
+    if (bundle?.enabled && bundle.installed && !bundle.error) {
+      return {
+        target,
+        componentEnabled: state.readers.some((row) => row.moduleName === name && row.enabled),
+      };
+    }
+  }
+  return { target: "off" };
+}
+
 async function enable(ctx, row, enabled) {
   const result = await ctx.pluginManager.setPluginEnabled(row.entryId, enabled);
   assert.equal(
@@ -100,44 +130,77 @@ async function enable(ctx, row, enabled) {
   );
 }
 
-export async function switchReader(ctx, target) {
-  assert.ok(["dev", "stable", "off"].includes(target), "Use dev, stable or off.");
-  const rows = await readers(ctx);
-  const moduleName = target === "dev" ? DEV_PACKAGE : STABLE_PACKAGE;
-  const wanted = target === "off" ? undefined : rows.find((row) => row.moduleName === moduleName);
-  if (target !== "off") {
-    assert.ok(
-      wanted,
-      `${moduleName} has no controllable entry; check installation and compatibility.`,
-    );
-    assert.ok(!wanted.readOnlyReason, `Entry is not controllable: ${wanted.readOnlyReason}`);
-  }
+async function enableBundle(ctx, packageName, enabled) {
+  const result = await ctx.pluginManager.setBundleEnabled(packageName, enabled);
+  assert.equal(result.application, "applied", `Bundle change did not apply: ${packageName}.`);
+}
+
+async function stopReader(ctx, packageName) {
+  const before = await readerState(ctx);
   try {
-    for (const row of rows) {
-      if (row.enabled && row.entryId !== wanted?.entryId) await enable(ctx, row, false);
+    for (const row of before.readers) {
+      if (row.moduleName === packageName && row.enabled) await enable(ctx, row, false);
     }
-    if (wanted && !wanted.enabled) await enable(ctx, wanted, true);
-    const after = await readers(ctx);
+  } finally {
+    if (before.bundles.some((bundle) => bundle.name === packageName && bundle.enabled)) {
+      await enableBundle(ctx, packageName, false);
+    }
+  }
+  const after = await readerState(ctx);
+  assert.ok(!after.bundles.some((bundle) => bundle.name === packageName && bundle.enabled));
+  assert.ok(
+    !after.readers.some(
+      (row) => row.moduleName === packageName && (row.enabled || row.fiberPhase === "active"),
+    ),
+    `${packageName} component did not stop.`,
+  );
+}
+
+async function applyReaderSelection(ctx, { target, componentEnabled = true }) {
+  const packageName = target === "off" ? undefined : readerPackages[target];
+  const before = await readerState(ctx);
+  const wanted = before.bundles.find((bundle) => bundle.name === packageName);
+  if (packageName) {
     assert.ok(
-      after.filter((row) => row.enabled).length <= 1,
-      "Two readers must never run together.",
+      wanted?.installed && !wanted.error,
+      `${packageName} is unavailable; check installation and compatibility.`,
     );
-    if (wanted) assert.ok(after.some((row) => row.moduleName === moduleName && row.enabled));
-    return after;
+  }
+  for (const name of [DEV_PACKAGE, STABLE_PACKAGE]) {
+    if (name !== packageName) await stopReader(ctx, name);
+  }
+  if (wanted) {
+    if (!wanted.enabled) await enableBundle(ctx, packageName, true);
+    const row = (await readers(ctx)).find((row) => row.moduleName === packageName);
+    assert.ok(row && !row.readOnlyReason, `${packageName} has no controllable entry.`);
+    if (row.enabled !== componentEnabled) await enable(ctx, row, componentEnabled);
+  }
+  const after = await readerState(ctx);
+  const selected = wanted ? [packageName] : [];
+  const active = componentEnabled ? selected : [];
+  assert.deepEqual(
+    after.bundles.filter((row) => row.enabled).map((row) => row.name),
+    selected,
+  );
+  assert.deepEqual(
+    after.readers.filter((row) => row.enabled).map((row) => row.moduleName),
+    active,
+  );
+  assert.deepEqual(
+    after.readers.filter((row) => row.fiberPhase === "active").map((row) => row.moduleName),
+    active,
+  );
+  return after;
+}
+
+export async function switchReader(ctx, target, componentEnabled = true) {
+  assert.ok(["dev", "stable", "off"].includes(target), "Use dev, stable or off.");
+  const previous = readerSelection(await readerState(ctx));
+  try {
+    return await applyReaderSelection(ctx, { target, componentEnabled });
   } catch (error) {
     try {
-      for (const current of await readers(ctx)) {
-        if (
-          current.enabled &&
-          !rows.some((row) => row.moduleName === current.moduleName && row.enabled)
-        ) {
-          await enable(ctx, current, false);
-        }
-      }
-      for (const previous of rows.filter((row) => row.enabled)) {
-        const current = (await readers(ctx)).find((row) => row.moduleName === previous.moduleName);
-        if (current && !current.enabled) await enable(ctx, current, true);
-      }
+      await applyReaderSelection(ctx, previous);
     } catch (restoreError) {
       throw new AggregateError([error, restoreError], "Reader switch and its restoration failed.", {
         cause: restoreError,
@@ -155,36 +218,51 @@ function readerEntry(ctx) {
 
 export async function withDevelopmentReader(ctx, operation, restored = () => {}) {
   assertIdle(ctx);
-  const before = await readers(ctx);
-  let failed = false;
-  let failure;
+  const previous = readerSelection(await readerState(ctx), ["stable"]);
   let value;
-  const restoration = [];
+  const errors = [];
   try {
-    await switchReader(ctx, "dev");
+    await applyReaderSelection(ctx, { target: "dev" });
     value = await operation();
   } catch (error) {
-    failed = true;
-    failure = error;
+    errors.push(error);
   }
   try {
-    await switchReader(ctx, "off");
-    for (const row of before.filter((row) => row.enabled)) {
-      const current = (await readers(ctx)).find((item) => item.moduleName === row.moduleName);
-      assert.ok(current, `Cannot restore ${row.moduleName}.`);
-      await enable(ctx, current, true);
-    }
+    await stopReader(ctx, DEV_PACKAGE);
+    restored(await applyReaderSelection(ctx, previous));
   } catch (error) {
-    restoration.push(error);
+    throw new AggregateError([...errors, error], "Desktop reader restoration failed.", {
+      cause: error,
+    });
   }
-  if (restoration.length)
-    throw new AggregateError(
-      [...(failed ? [failure] : []), ...restoration],
-      "Desktop reader restoration failed.",
-    );
-  restored();
-  if (failed) throw failure;
+  if (errors.length) throw errors[0];
   return value;
+}
+
+export async function disposeTestSession(ctx, { sessionId, project, handle }) {
+  assert.equal(handle.agent.id, sessionId, "Test Agent identity changed.");
+  const persistence = handle.agent.ctx.get("sessionPersistence") ?? ctx.get("sessionPersistence");
+  await handle.dispose();
+  assert.equal(ctx.agents.get(sessionId), undefined, "Test Agent did not stop.");
+  // DSH exposes the stored artifact through stat(), but has no Session delete API.
+  const snapshot = await persistence.stat(sessionId);
+  if (snapshot) {
+    assert.equal(snapshot.header.id, sessionId, "Stored test session identity changed.");
+    assert.equal(snapshot.header.cwd, project, "Stored session belongs to another project.");
+    assert.equal(snapshot.location?.kind, "jsonl", "Unsupported test session storage backend.");
+    const path = snapshot.location.path;
+    assert.ok(lstatSync(path).isFile(), "Test session storage must be a regular file.");
+    assert.equal(ctx.agents.get(sessionId), undefined, "Test Agent is active again.");
+    unlinkSync(path);
+    assert.equal(await persistence.stat(sessionId), undefined, "Test session remains in storage.");
+  }
+  ctx.emit("api-session/removed", sessionId);
+  const { items } = await ctx.sessionController.list({}, AbortSignal.timeout(15000));
+  assert.ok(
+    !items.some((item) => item.sessionId === sessionId),
+    "Test session remains in the DSH conversation list.",
+  );
+  return { sessionId, deleted: true };
 }
 
 export function verifyCase(spec, evidence) {
@@ -263,6 +341,7 @@ async function realModelAcceptance(ctx, directory, signal, progress) {
   const first = fixture(directory, "project-a");
   const second = fixture(directory, "project-b");
   const sessions = new Map();
+  const cleanup = [];
   const allProbes = new Set([...Object.values(first.probes), ...Object.values(second.probes)]);
   const cases = [];
   const stopEvents = ctx.on("session/event", (session, event) => {
@@ -304,12 +383,25 @@ async function realModelAcceptance(ctx, directory, signal, progress) {
   const run = async (spec) => {
     signal.throwIfAborted();
     assertIdle(ctx, new Set(sessions.keys()));
-    const created = await ctx.sessionController.create({
-      cwd: spec.project,
-      sessionId: `session-${randomUUID()}`,
+    const composer = ctx.sessionController.agents;
+    assert.equal(typeof composer?.composeAgent, "function", "Unsupported DSH agent composer.");
+    assert.equal(typeof composer.agentOptions, "function", "Unsupported DSH model adapter.");
+    const composition = await composer.composeAgent();
+    const sessionId = `session-${randomUUID()}`;
+    const handle = await ctx.agents.create({
+      sessionId,
+      meta: {
+        cwd: spec.project,
+        ...(composition.agentPreset && { agentPreset: composition.agentPreset }),
+      },
+      agentOptions: composer.agentOptions(),
+      setup: composition.setup,
+      signal,
     });
     const evidence = {
-      sessionId: created.sessionId,
+      sessionId,
+      project: spec.project,
+      handle,
       answer: "",
       forms: new Set(),
       probes: new Set(),
@@ -318,20 +410,17 @@ async function realModelAcceptance(ctx, directory, signal, progress) {
       receiptLeak: false,
       complete: false,
     };
-    sessions.set(created.sessionId, evidence);
-    const agent = ctx.agents.get(created.sessionId);
-    assert.ok(agent, "Desktop did not create the test Agent.");
-    agent.ctx.tools.restrict({ allow: ["claude_code_memory"] });
+    sessions.set(sessionId, evidence);
+    progress({ phase: spec.name, sessionId });
+    handle.agent.ctx.tools.restrict({ allow: ["claude_code_memory"] });
     await ctx.sessionController.rename({
-      sessionId: created.sessionId,
+      sessionId,
       title: `Memory E2E: ${spec.name}`,
     });
-    const requestId = randomUUID();
-    progress({ phase: spec.name, sessionId: created.sessionId });
     await ctx.sessionController.prompt(
       {
-        requestId,
-        sessionId: created.sessionId,
+        requestId: randomUUID(),
+        sessionId,
         mode: "queue",
         content: [{ type: "text", text: spec.prompt }],
         clientTimeZone: "Asia/Shanghai",
@@ -341,7 +430,7 @@ async function realModelAcceptance(ctx, directory, signal, progress) {
     for (;;) {
       signal.throwIfAborted();
       const state = await ctx.sessionController.wait(
-        { sessionId: created.sessionId, timeoutMs: 10000, maxMessages: 10 },
+        { sessionId, timeoutMs: 10000, maxMessages: 10 },
         signal,
       );
       assert.notEqual(
@@ -368,6 +457,7 @@ async function realModelAcceptance(ctx, directory, signal, progress) {
     await withDevelopmentReader(
       ctx,
       async () => {
+        const errors = [];
         try {
           for (const project of [first, second]) {
             const location = resolveMemoryLocation({
@@ -427,32 +517,38 @@ async function realModelAcceptance(ctx, directory, signal, progress) {
             prompt:
               "自动验收：请调用 claude_code_memory 的 recall 动作读取当前项目的 release_probe，然后仅输出当前项目的 index_probe 与 release_probe。",
           });
-        } finally {
-          // Drain our own turns before changing shared plugin state or config.
-          for (const sessionId of sessions.keys()) {
-            const agent = ctx.agents.get(sessionId);
-            if (agent?.status !== "idle") {
-              agent?.cancel({ kind: "user" });
-              const state = await ctx.sessionController.wait(
-                { sessionId, timeoutMs: 10000 },
-                AbortSignal.timeout(15000),
-              );
-              assert.equal(state.reason, "idle", "A test turn did not stop after cancellation.");
-            }
+        } catch (error) {
+          errors.push(error);
+        }
+        for (const owned of sessions.values()) {
+          try {
+            cleanup.push(await disposeTestSession(ctx, owned));
+          } catch (error) {
+            cleanup.push({ sessionId: owned.sessionId, deleted: false, error: error.message });
+            errors.push(error);
           }
         }
+        progress({ cleanup, cases });
+        if (cleanup.some((session) => !session.deleted)) {
+          throw new AggregateError(errors, "Desktop test session cleanup failed.");
+        }
+        if (errors.length) throw errors[0];
       },
-      () => progress({ restored: true }),
+      (state) => progress({ restored: true, ...state }),
     );
-    return { runtime, cases, restored: true };
+    return { runtime, cases, cleanup, restored: true, ...(await readerState(ctx)) };
   } finally {
     stopEvents();
     stopLlm();
-    for (const sessionId of sessions.keys()) {
-      const agent = ctx.agents.get(sessionId);
-      if (agent?.status !== "idle") agent?.cancel({ kind: "user" });
-    }
   }
+}
+
+function reportError(error) {
+  return {
+    message: error.message,
+    stack: error.stack,
+    ...(error instanceof AggregateError && { errors: error.errors.map(reportError) }),
+  };
 }
 
 export function apply(ctx, config) {
@@ -495,10 +591,10 @@ export function apply(ctx, config) {
           const signal = AbortSignal.any([lifetime.signal, AbortSignal.timeout(240000)]);
           let value;
           if (request.op === "status") {
-            value = { runtime: desktopRuntime(), readers: await readers(ctx) };
+            value = { runtime: desktopRuntime(), ...(await readerState(ctx)) };
           } else if (request.op === "switch") {
             assertIdle(ctx);
-            value = { readers: await switchReader(ctx, request.target) };
+            value = await switchReader(ctx, request.target, request.componentEnabled);
           } else if (request.op === "e2e") {
             const runDirectory = artifactDirectory(join(directory, "runs", id));
             value = await realModelAcceptance(ctx, runDirectory, signal, (progress) =>
@@ -518,7 +614,7 @@ export function apply(ctx, config) {
             ...JSON.parse(readFileSync(output, "utf8")),
             status: "failed",
             finishedAt: new Date().toISOString(),
-            error: { message: error.message, stack: error.stack },
+            error: reportError(error),
           });
         }
       }

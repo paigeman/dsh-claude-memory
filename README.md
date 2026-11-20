@@ -4,7 +4,7 @@
 
 Read your project's existing Claude Code or Claude Code Desktop Auto Memory from DeepSeek Harness (DSH). The plugin supplies a bounded `MEMORY.md` index, then lets the model recall topic files when the task needs them. An explicit request such as “load all memories” starts a full, budgeted recall.
 
-This checkout (version 0.1.7) supports DSH 0.2.1-rc.5, 0.2.2-rc.1, 0.2.2-rc.2, and 0.2.2-rc.3 with the same plugin code. The CI matrix exercises each version's pinned DSH and Cordis libraries and the packed plugin on Linux, macOS, and Windows. Native tests cover compatibility checks, tool registration, recall, request injection, and V4 encoding. Real-model recall has also passed automated acceptance in the macOS DSH 0.2.2-rc.1, 0.2.2-rc.2, and 0.2.2-rc.3 Desktop Hosts. Other Desktop versions and platforms still need separate end-to-end verification.
+This checkout (version 0.1.8) supports DSH 0.2.1-rc.5 and 0.2.2-rc.1 through 0.2.2-rc.5. The CI matrix exercises each version's pinned DSH and Cordis libraries and the packed plugin on Linux, macOS, and Windows. Native tests cover compatibility checks, tool registration, recall, request injection, and V4 encoding. On macOS, real-model Desktop acceptance has passed on DSH 0.2.2-rc.1, 0.2.2-rc.2, 0.2.2-rc.3, and 0.2.2-rc.5. Other Desktop versions and platforms still need separate end-to-end verification.
 
 ## Requirements
 
@@ -247,7 +247,8 @@ For local development with Desktop open and signed in, `npm run test:desktop` in
 | 0.1.4                 | 0.2.1-rc.5                                         |
 | 0.1.5                 | 0.2.1-rc.5 and 0.2.2-rc.1                          |
 | 0.1.6                 | 0.2.1-rc.5, 0.2.2-rc.1, and 0.2.2-rc.2             |
-| 0.1.7 (this checkout) | 0.2.1-rc.5, 0.2.2-rc.1, 0.2.2-rc.2, and 0.2.2-rc.3 |
+| 0.1.7                 | 0.2.1-rc.5, 0.2.2-rc.1, 0.2.2-rc.2, and 0.2.2-rc.3 |
+| 0.1.8 (this checkout) | 0.2.1-rc.5 and 0.2.2-rc.1 through 0.2.2-rc.5       |
 
 DSH 0.2.1-rc.5 is the support baseline. Keep one plugin release line for the current and previous tested DSH generations while their public interfaces remain compatible. This does not promise support for every intervening or future build. The published `engines.dsh` lists tested versions explicitly; adding a version requires its own native test workspace and passing CI.
 

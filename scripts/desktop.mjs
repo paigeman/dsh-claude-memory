@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   cpSync,
@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { artifactDirectory, DEV_PACKAGE, writeJson } from "./desktop-control.mjs";
+import { artifactDirectory, DEV_PACKAGE, readerSelection, writeJson } from "./desktop-control.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const directory = join(root, ".agent-tmp", "desktop-control");
@@ -42,6 +42,7 @@ function candidateCurrent() {
     const current = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     const pkg = JSON.parse(readFileSync(join(installed, "package.json"), "utf8"));
     return (
+      pkg.name === DEV_PACKAGE &&
       pkg.version === candidate.version &&
       candidate.baseVersion === current.version &&
       JSON.stringify(pkg.engines) === JSON.stringify(current.engines) &&
@@ -140,7 +141,7 @@ function prepare() {
   return result;
 }
 
-async function request(op, target) {
+async function request(op, selection) {
   artifactDirectory(directory);
   assert.ok(
     existsSync(join(directory, "ready.json")),
@@ -171,7 +172,7 @@ async function request(op, target) {
   }
   const id = randomUUID();
   const path = join(directory, "requests", `${id}.json`);
-  writeJson(path, { id, op, ...(target ? { target } : {}) });
+  writeJson(path, { id, op, ...selection });
   const output = join(directory, "reports", `${id}.json`);
   const deadline = Date.now() + (op === "e2e" ? 270000 : 30000);
   let lastPhase;
@@ -195,6 +196,13 @@ async function request(op, target) {
 
 async function install() {
   const candidate = prepare();
+  const extract = (file) =>
+    execFileSync("tar", ["-xOf", candidate.artifact, `package/${file}`], { encoding: "utf8" });
+  const packed = JSON.parse(extract("package.json"));
+  assert.equal(packed.name, DEV_PACKAGE, "Refusing a package without the development name.");
+  assert.equal(packed.version, candidate.version);
+  assert.ok(extract("cordis.patch.yml").includes("id: claude-memory-dev\n      disabled: true\n"));
+  assert.equal(hash(candidate.artifact), candidate.sha256);
   const cli =
     process.env.DSH_DESKTOP_CLI ??
     (process.platform === "darwin"
@@ -204,19 +212,38 @@ async function install() {
     cli && existsSync(cli),
     "Set DSH_DESKTOP_CLI to the Desktop installation's bundled dsh launcher.",
   );
-  const installed = spawnSync(
-    cli,
-    ["plugin", "--profile", "desktop", "add", `file:${candidate.artifact}`, "--ignore-scripts"],
-    { cwd: root, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 },
-  );
-  writeJson(join(directory, "install.json"), {
-    candidate,
-    exitCode: installed.status,
-    stdout: installed.stdout,
-    stderr: installed.stderr,
-  });
-  assert.equal(installed.status, 0, installed.stderr);
-  return connect();
+  const { value: before } = await connect();
+  const previous = readerSelection(before);
+  // A first-time CLI install selects new bundles automatically.
+  await request("switch", { target: "off" });
+  const errors = [];
+  try {
+    const installed = spawnSync(
+      cli,
+      ["plugin", "--profile", "desktop", "add", `file:${candidate.artifact}`, "--ignore-scripts"],
+      { cwd: root, encoding: "utf8", maxBuffer: 4 * 1024 * 1024 },
+    );
+    writeJson(join(directory, "install.json"), {
+      candidate,
+      exitCode: installed.status,
+      stdout: installed.stdout,
+      stderr: installed.stderr,
+    });
+    if (installed.error) throw installed.error;
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.ok(candidateCurrent(), "Desktop did not install the verified development package.");
+  } catch (error) {
+    errors.push(error);
+  }
+  try {
+    await request("switch", previous);
+  } catch (error) {
+    errors.push(error);
+  }
+  if (errors.length > 1) {
+    throw new AggregateError(errors, "Development install and reader restoration failed.");
+  }
+  if (errors.length) throw errors[0];
 }
 
 async function connect() {
@@ -250,7 +277,7 @@ async function main() {
   else if (command === "install") await install();
   else if (command === "connect") await connect();
   else if (command === "status") await request("status");
-  else if (command === "use") await request("switch", target);
+  else if (command === "use") await request("switch", { target });
   else if (command === "test") {
     if (!candidateCurrent()) await install();
     else if (!readyCurrent()) await connect();
